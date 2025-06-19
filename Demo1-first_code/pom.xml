@@ -16,12 +16,19 @@
     </parent>
 
     <dependencies>
-        <!--引入Spring Boot web启动器依赖-->
+        <!--引入 Spring Boot web 启动器依赖-->
         <!--它会自动将 web 开发相关的所有依赖全部引入，例如：json、tomcat、springmvc等，包括它们的版本，也会自动管理-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!--单元测试-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>Demo1-first_code</finalName>

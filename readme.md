@@ -200,6 +200,303 @@ Visual Studio Code 社区提供了多个插件，如 Spring Boot Extension Pack�
 在创建项目时，勾选 spring boot 那个模块，然后和上面的配置差不多，也是看做什么项目引入什么依赖，例如 web、lomback、mybatis等，因为它实际上还是引用的官方的脚手架
 
 ****
+# 二. Spring Boot 核心机制
+
+## 1. 为什么要用继承的方式引入 SpringBoot
+
+一般情况下需要用到什么框架直接引入对应的依赖即可，但是 SpringBoot 项目则推荐采用继承的方式
+
+**继承父工程的优势**
+
++ 依赖管理：可以在父工程中定义依赖的版本，子模块可以直接引用而不必指定版本号
++ 插件管理：可以在父工程中配置常用的插件及其版本，子模块可以直接使用这些配置
++ 属性设置：可以在父工程中定义一些通用的属性，如项目编码、Java 版本等
++ 统一配置：可以统一多个子模块的构建配置，确保一致性
+
+继承依赖后，可以在 Maven 中看到它直接引入了开发中需要使用的其他依赖，Spring Boot 预先对它们进行了版本的统一管理
+
+**直接引入依赖的局限性**（如果不使用继承父工程的方式，而是通过直接引入依赖的方式来管理项目，那么将失去上述的一些优势）
+
++ 依赖版本管理：每个子模块都需要单独指定依赖的版本，这会导致大量的重复配置，并且难以维护
++ 插件配置：每个子模块都需要单独配置插件及其版本，无法共享父工程中的插件配置
++ 属性设置：每个子模块都需要单独设置通用的属性，如项目编码、Java 版本等
++ 构建配置：每个子模块的构建配置需要单独维护，难以保证一致性
+
+**总结：选择哪种方式取决于具体需求**
+
++ 如果希望多个项目之间共享构建配置，则推荐使用继承的方式
++ 如果只是想在项目之间共享代码，那么应该使用依赖关系
+
+### 依赖统一管理的好处
+
+Spring Boot 框架的一个重要特性就是简化了项目依赖管理，它通过提供一个叫做“依赖管理”的功能来帮助开发者更容易地管理和使用第三方库和其他 Spring 组件。
+具体来说，Spring Boot 提供了一个包含多个 Spring 和其他常用库的依赖版本配置文件（通常是在 `spring-boot-dependencies` 文件中），
+这使得开发者不需要在自己的项目中显式指定这些依赖的版本号。
+
+1. 简化依赖声明
+
+开发者只需要在 `pom.xml` 文件中声明需要的依赖而不需要指定其版本号，因为 Spring Boot 已经为这些依赖指定了版本。如果需要使用 mysql 驱动，只需要添加相应的依赖声明而不需要关心版本。
+
+```xml
+<dependency>
+    <groupId>com.mysql</groupId>
+    <artifactId>mysql-connector-j</artifactId>
+    <!--也可也强制使用自己想用的版本-->
+    <!--<version>8.2.0</version>-->
+</dependency>
+```
+
+2. 避免版本冲突
+
+当多个库之间存在依赖关系的时候，如果手动管理版本可能会导致版本之间的冲突（即“依赖地狱”）。Spring Boot 提供的统一版本管理可以减少这种冲突的可能性
+
+3. 易于升级
+
+当 Spring Boot 发布新版本时，通常会更新其依赖库到最新稳定版。因此，当升级 Spring Boot 版本时，它所管理的所有依赖也会随之更新到兼容的版本
+
+4. 减少配置错误
+
+由于 Spring Boot 自动处理了依赖的版本，就有效减少了手动输入版本号可能引入的拼写或格式错误
+
+****
+## 2. Starter 启动器
+
+>Starter 是一组 Maven 依赖的聚合器，封装了一类功能所需的全部依赖，只需要添加一个 starter，Spring Boot 会自动引入它所依赖的所有库，并进行自动配置。
+>如果想做web开发，只需要引入web启动器，web启动器会自动引入web开发所需要的子依赖
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+
+上面这行代码不仅引入了 Spring MVC，还自动引入了 Spring Boot 核心模块、Jackson JSON 解析库、嵌入式 Tomcat、日志组件（SLF4J + Logback）
+
+**启动器实现原理**
+
+1. 依赖聚合
+
+每个启动器通常对应一个特定的功能集或者一个完整的应用模块，如 `spring-boot-starter-web` 就包含了构建 Web 应用所需的所有基本依赖项，如 Spring MVC, Tomcat 嵌入式容器等
+
+2. 依赖传递
+
+在项目中引入一个启动器时，它不仅会把自身作为依赖加入到项目中，还会把它所有的直接依赖项（transitive dependencies）也加入进来，这意味着不需要单独声明这些依赖项，它们会自动成为项目的一部分
+
+3. 版本管理
+
+启动器内部已经指定了所有依赖项的具体版本，这些版本信息存储在一个公共的 BOM（Bill of Materials，物料清单）文件中，通常是 `spring-boot-dependencies`。当引入启动器时，实际上也间接引用了这个 BOM，从而确保了所有依赖项版本的一致性
+
+4. 自动配置
+
+许多启动器还提供了自动配置（Auto-configuration），这是一种机制，允许 Spring Boot 根据类路径上的可用组件自动设置应用程序。
+例如： 如果类路径上有 Spring MVC 和嵌入式 Tomcat，则 Spring Boot 会自动配置它们，并准备好一个 web 应用程序
+
+官方提供的启动器：启动器命名特点：spring-boot-starter-*
+
+非官方提供的启动器：启动器命名特点：*-spring-boot-starter
+
+****
+## 3. 核心注解
+
+### @SpringBootApplication 注解
+
+Spring Boot 的主入口程序被 `@SpringBootApplication` 注解标注，它本质上是一个组合注解，使用该注解标注在启动类上，可一键启用配置类、组件扫描和自动配置
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Inherited
+@SpringBootConfiguration
+@EnableAutoConfiguration
+@ComponentScan
+public @interface SpringBootApplication {
+    ...
+}
+```
+
+### @SpringBootConfiguration
+
+作用类似于 @Configuration，是 Spring Boot 的专属配置注解，是对 @Configuration 的进一步封装，用于 Spring Boot 启动类，语义更清晰
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Configuration
+public @interface SpringBootConfiguration {
+}
+```
+
+在 @SpringBootApplication 有此注解，证明主入口程序是一个配置类，也就是说主入口中的方法可以被 @Bean 注解标注，被 @Bean 注解的标注的方法会被 Spring 容器自动调用，
+并且将该方法的返回对象纳入 IoC 容器的管理
+
+```java
+@Bean
+public Date getNowDate(){ // 方法名作为bean的id
+    return new Date();
+}
+```
+
+```java
+@Controller
+@ResponseBody
+public class FirstController {
+
+    @Autowired
+    private Date date;
+
+    @RequestMapping("date")
+    public String date(){
+        return date.toString();
+    }
+}
+```
+
+在主入口程序中可以把 Date 注册成 Spring 管理的 bean，然后通过 @Autowired 注解可以获取到 IoC 容器管理的 bean 并完成自动注入，获取当前时间
+
+### @EnableAutoConfiguration（开启自动配置）
+
+```java
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Inherited
+@AutoConfigurationPackage
+@Import(AutoConfigurationImportSelector.class)
+public @interface EnableAutoConfiguration {
+    ...
+}
+```
+
+Spring Boot 会根据引入的 Starter 或依赖，在后台自动注册 Bean、配置类、属性文件等，不用再手动配置 XML 或 Java Bean，例如，如果在 SpringBoot 项目中进行了如下配置：
+
+```text
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.datasource.url=jdbc:mysql://localhost:3306/springboot-notes
+spring.datasource.username=root
+spring.datasource.password=123
+```
+
+并且在依赖中引入了 mybatis 依赖或 mybatis 启动器，那么 SpringBoot 框架将自动化配置以下 bean：
+
++ SqlSessionFactory: MyBatis 的核心工厂 SqlSessionFactory 会被自动配置，这个工厂负责创建 SqlSession 实例，执行映射文件中的 SQL 语句
++ TransactionManager: DataSourceTransactionManager 会被自动配置来管理与数据源相关的事务
+
+### @ComponentScan
+
+它是 Spring 的原始注解，用于扫描 @Component、@Controller、@Service、@Repository 等注解标注的类
+
+****
+## 4. Spring Boot 的单元测试
+
+Spring Boot 是基于 JUnit（默认 JUnit 5）进行测试，并通过 spring-boot-starter-test 提供一整套自动配置和依赖集，可以单独创建一个测试类，然后让 spring 自动注入 service 类，
+直接调用它里面的方法即可，需要注意的是，虽然测试类只能放在 test 目录下，但是必须让它的路径和主入口程序一致或者为子目录，不然无法自动注入
+
+```java
+@SpringBootTest
+class UserServiceTests {
+
+    @Autowired
+    private UserService userService;
+
+    @Test
+    void contextLoads() {
+        userService.save();
+    }
+}
+```
+
+### @SpringBootTest
+
+@SpringBootTest 会创建一个完整的 Spring 应用程序上下文（Application Context），这个上下文包含了应用程序的所有组件和服务，以下是它做的一些主要工作：
+
+1. 创建 ApplicationContext
+
+@SpringBootTest 会模拟执行 SpringApplication.run(...) 启动整个 Spring Boot 应用，这意味着它会加载应用程序的主配置类和其他相关的配置类。
+在上面程序中，UserService 就是从 IoC 容器中注入的，整个容器在测试运行前已经启动完毕
+
+2. 加载配置文件
+
+它会查找并加载默认的配置文件，如 `application.properties`
+
+3. 自动配置
+
+如果应用程序依赖于 Spring Boot 的自动配置特性，`@SpringBootTest` 会确保这些自动配置生效。这意味着它会根据可用的类和bean来自动配置一些组件，
+如 Web 组件（MVC）、数据库连接(MyBatis)、消息队列等
+
+4. 注入依赖
+
+使用 `@SpringBootTest` 创建的应用程序上下文允许你在测试类中使用 `@Autowired` 注入需要的 bean，就像在一个真实的 Spring Boot 应用程序中一样
+
+****
+## 5. 外部化配置
+
+### 5.1 概述
+
+外部化配置（Externalized Configuration）指的是：把配置信息（如数据库连接、端口号、日志路径等）从代码中分离出来，存放在外部文件或系统环境中，
+Spring Boot 支持多种形式的外部化配置来源，包括：
+
+- application.properties / application.yml 
+- 命令行参数 
+- 系统环境变量
+- @Value 注入 
+
+外部化配置的优势：
+
+1. 灵活性：配置文件可以独立于应用程序部署，这使得可以根据运行环境的不同来调整配置，而无需修改代码
+2. 易于维护：配置变更不需要重新构建和部署应用程序，降低了维护成本
+3. 安全性：敏感信息如数据库密码、API密钥等可以存储在外部，并且可以限制谁有权限访问这些配置信息
+4. 共享性：多实例或多服务可以共享相同的配置信息，减少重复配置的工作量
+5. 版本控制：配置文件可以存放在版本控制系统中，便于跟踪历史版本和回滚配置
+
+与传统配置对比：
+
+在传统的 SSM 三大框架中，如果修改 XML 的配置后，需要对应用重新打包，重新部署。
+但使用 Spring Boot 框架的外部化配置修改配置后，不需要对应用重新打包，也不需要重新部署，因为这些文件是放在 jar 包的外面的，只改配置文件，然后重启应用即可
+
+****
+### 5.2 application.properties 文件
+
+Spring Boot 是约定大于配置的框架，虽然大部分功能可以默认启用，但有时候需要修改端口、日志级别、数据库信息等系统级参数，这些都可以通过 application.properties 文件完成。
+application.properties 配置文件是 SpringBoot 默认的配置文件，它不是必须的，对于应用程序来说，都提供了一套默认配置，
+application.properties 是用来覆盖默认配置的，当需要修改默认行为时才需要手写它
+
+Spring Boot 框架在启动时会尝试从以下位置加载 application.properties 配置文件（优先级）：
+
+1. file:./config/：首先在Spring Boot 当前工作目录下的 config 文件夹中查找。
+
+注意：如果没有找到 application.properties 会继续找 application.yml，如果这两个都没有找到，才会进入以下位置查找，以此类推
+
+2. file:./：如果在当前工作目录下 config 目录中找不到时，再从当前工作目录中查找
+3. classpath:/config/：如果从工作目录中找不到，会从类路径中找，先从类路径的 /config/ 目录下寻找配置文件
+4. classpath:/：如果在 /config/ 下没有找到，它会在类路径的根目录下查找
+
+如果想要指定其他的配置文件位置或者改变默认的行为，可以通过使用命令行 `--spring.config.location=` 后跟路径的方式来指定配置文件的具体位置，
+这个命令行参数将来会传进 main 方法的 (String[] args) 参数上
+
+```text
+// 绝对路径前要加一个 '/'
+java -jar Demo1-first_code.jar --spring.config.location=file:///E:\a\b\application.properties
+```
+
+可以在 main 方法里输出命令行参数
+
+```text
+--spring.config.location=file:///E:\BaiduNetdiskDownload\document\test\a\b\application.properties
+```
+
+@Value 注解可以将 application.properties/application.yml 文件中的配置信息注入/绑定到 java 对象的属性上：@Value("${key}")。
+且 @Value 获取的值取决于配置文件的优先级，哪个配置源的优先级高，哪个就会覆盖掉其他，
+或者使用 @PropertySource("classpath:myconfig.properties") 注解标注在 AppConfig 配置类上，来显示表名要使用哪个
+
+****
+
+
+
+
+
 
 
 
