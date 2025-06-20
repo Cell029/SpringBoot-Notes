@@ -388,6 +388,88 @@ spring.datasource.password=123
 
 它是 Spring 的原始注解，用于扫描 @Component、@Controller、@Service、@Repository 等注解标注的类
 
+### @Configuration
+
+被此注解标注的类代表配置类，它的作用本质上就是将一个普通的 Java 类标记为 Spring 的配置类，类似于早期 XML 配置中的 <beans> 标签，通常与 @Bean 结合使用
+
+@Configuration 本身不会产生 Bean，而是其内部带有 @Bean 注解的方法会交给 Spring 容器去执行，并将返回对象注册成 Bean
+
+```java
+@Configuration
+public class MyConfig {
+    @Bean
+    public MyService myService() {
+        return new MyService();
+    }
+}
+```
+
+需要注意的是：使用 @Configuration 的类会被 Spring 通过 CGLIB 动态代理增强，从而确保 @Bean 方法调用时不会创建多个实例
+
+```java
+@Configuration
+public class MyConfig {
+    @Bean
+    public A a() {
+        return new A();
+    }
+    @Bean
+    public B b() {
+        return new B(a()); // Spring 会自动拿容器中的 A，而不是 new 一个新的
+    }
+}
+```
+
+如果上面的注解使用的是普通的 @Component，那么这种情况下 a() 不会被代理，多次调用会创建多个实例，当然也可也通过添加属性(@Configuration(proxyBeanMethods = false)，默认值为 true)来不使用 CGLIB 动态代理
+
+### @EnableConfigurationProperties 与 @ConfigurationPropertiesScan
+
+@EnableConfigurationProperties 是用来启用 @ConfigurationProperties 注解的配置类，并将其作为 Spring Bean 注入容器，被此注解标注的配置类的存放路径随意，不需要被 Spring 扫描包路径覆盖到，
+即存放路径与主入口程序无关
+
+
+```java
+// 不加 @Component！
+@ConfigurationProperties(prefix = "myapp")
+public class UserProperties {
+    private String name;
+    private Integer age;
+    // Getter、Setter
+}
+```
+
+Spring Boot 会将 UserProperties 注册为一个 Bean，并从配置文件中自动绑定属性，但 AppConfig 配置类还是得放在 Spring 能扫描到的位置
+
+```java
+@Configuration
+@EnableConfigurationProperties(UserProperties.class)
+public class AppConfig {
+    @Autowired
+    UserProperties userProperties;
+}
+```
+
+@ConfigurationPropertiesScan 是用来自动扫描并注册所有标注了 @ConfigurationProperties 的类为 Bean，
+这样就不需要再去加 @Component 和 @EnableConfigurationProperties（即不需要被扫描到），Spring 会自动扫描并注册为 Bean。
+
+```java
+@SpringBootApplication
+// 在主程序类上使用，如果配置类就在主类包或子包中，也可以省略 basePackages
+@ConfigurationPropertiesScan(basePackages = "com.cell.first.springboot.config")
+public class MyApplication {
+}
+```
+
+```java
+@ConfigurationProperties(prefix = "app.user")
+public class UserProperties { ... }
+
+@ConfigurationProperties(prefix = "app.db")
+public class DbProperties { ... }
+```
+
+
+
 ****
 ## 4. Spring Boot 的单元测试
 
@@ -492,9 +574,429 @@ java -jar Demo1-first_code.jar --spring.config.location=file:///E:\a\b\applicati
 或者使用 @PropertySource("classpath:myconfig.properties") 注解标注在 AppConfig 配置类上，来显示表名要使用哪个
 
 ****
+### 5.3 YAML
 
+#### 1. 概述
 
+SpringBoot 采用集中式配置管理，所有的配置都编写到一个配置文件中：application.properties，如果配置非常多，层级就会不够分明，
+因此 SpringBoot 为了提高配置文件可读性，也支持了 YAML 格式的配置文件：application.yml
 
+YAML（YAML Ain't Markup Language）是一种人类可读的数据序列化格式，它通常用于配置文件，在各种编程语言中作为一种存储或传输数据的方式。
+YAML 的设计目标是易于阅读和编写，同时保持足够的表达能力来表示复杂的数据结构，文件后缀可以是 .yaml 或 .yml
+
+常见的数据存储和交换格式：
+
+`properties`、`XML`、`JSON`、`YAML` 这几种格式是用来存储和交换数据的常见方式，但它们各有特点和适用场景：
+
+**Properties**
+
++ 这种格式主要用于 Java 应用程序中的配置文件。它是键值对的形式，每一行是一个键值对，使用等号或冒号分隔键和值
++ 特点是简单易懂，但在处理复杂结构的数据时能力较为有限
+
+**XML**
+
++ XML是一种标记语言，用来描述数据的格式，它支持复杂的数据结构，包括嵌套和属性
++ XML文档具有良好的结构化特性，适合传输和存储结构化的数据。但是，XML文档通常体积较大，解析起来也比较耗资源
+
+**JSON**
+
++ JSON是一种轻量级的数据交换格式，易于人阅读和编写，同时也易于机器解析和生成。它是基于JavaScript的一个子集，支持多种数据类型，如数字、字符串、布尔值、数组和对象
++ JSON因为简洁和高效而广泛应用于Web应用程序之间进行数据交换
+
+**YAML**
+
++ YAML设计的目标之一就是让人类更容易阅读，它支持类似JSON的数据序列化，但提供了更多的灵活性，例如缩进来表示数据结构
++ YAML非常适合用来编写配置文件，因为它允许以一种自然的方式组织数据，并且可以包含注释和其他人类可读的元素
+
+****
+#### 2. 语法规则
+
+1. 数据结构：YAML支持多种数据类型，包括：
+
+- 字符串、数字、布尔值 
+- 数组、list集合 
+- map键值对等
+
+2. YAML使用一个空格来分隔属性名和属性值，例如：
+
+- `properties`文件中这样的配置：name=jack
+- `yaml`文件中需要这样配置：name: jack
+
+3. YAML用 换行+空格 来表示层级关系。注意不能使用tab，必须是空格，空格数量无要求，大部分建议2个或4个空格。例如：
+
+- `properties`文件中这样的配置：myapp.name=mall
+- `yaml`文件中就需要这样配置：
+
+```yaml
+myapp:
+  name: mall
+```
+
+4. 同级元素左对齐。例如：
+
+- `properties`文件中有这样的配置：
+
+```properties
+myapp.name=mall
+myapp.count=10
+```
+
+- `yaml`文件中就应该这样配置：
+
+```yaml
+myapp:
+  name: mall
+  count: 10
+```
+
+5. 键必须是唯一的：在一个映射中，键必须是唯一的 
+6. 注释：使用`#`进行注释
+7. 大小写敏感
+
+需要注意的是：
+
+第一：普通文本也可以使用单引号或双引号括起来：（当然普通文本也可以不使用单引号和双引号括起来。）
+
++ 单引号括起来：单引号内所有的内容都被当做普通文本，不转义（例如字符串中有\n，则\n被当做普通的字符串）
++ 双引号括起来：双引号中有 \n 则会被转义为换行符
+
+第二：保留文本格式
+
++ |      将文本写到这个符号的下层，会自动保留格式。
+
+第三：文档切割
+
++ --- 这个符号下面的配置可以认为是一个独立的yaml文件。便于庞大文件的阅读。
+
+****
+### 5.4 配置文件合并
+
+一个项目中所有的配置全部编写到`application.properties`文件中，会导致配置臃肿，不易维护，有时我们会将配置编写到不同的文件中，
+例如：`application-mysql.properties`专门配置mysql的信息，`application-redis.properties`专门配置redis的信息，最终将两个配置文件合并到一个配置文件中。
+
+#### 1. 合并 .properties
+
+application-mysql.properties：
+
+```properties
+spring.datasource.username=root
+spring.datasource.password=123456
+```
+
+application-redis.properties：
+
+```properties
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+```
+
+application.properties：
+
+```properties
+# optional 表示可选的，如果没有找到对应的配置文件也不会报错
+spring.config.import=optional:classpath:/config/application-mysql.properties,optional:classpath:/config/application-redis.properties
+```
+
+测试：[UserServiceMulti.java](./Demo1-first_code/src/main/java/com/cell/first/springboot/service/UserServiceMulti.java)
+
+****
+#### 2. 合并 .yaml
+
+application-mysql.yml:
+
+```yaml
+spring:
+  datasource:
+    username: root
+    password: 789789
+```
+
+application-redis.yml：
+
+```yaml
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+```
+
+application.yml：
+
+```yaml
+spring:
+  config:
+    import:
+      - classpath:application-mysql.yml
+      - classpath:application-redis.yml
+```
+
+测试：UserServiceMultiYaml.java](./Demo1-first_code/src/main/java/com/cell/first/springboot/service/UserServiceMultiYaml.java)。
+因为这两种文件的表示内容一致，在使用时要注意使用的是哪个文件中的数据
+
+****
+### 5.5 多环境切换
+
+在 Spring Boot 中，多环境切换是指在一个应用程序中支持多种运行环境配置的能力。这通常用于区分开发（development）、测试（testing）、预生产（staging）和生产（production）等不同阶段的环境。
+这种功能使得开发者能够在不同的环境中使用不同的配置，比如数据库连接信息、服务器端口、环境变量等，而不需要更改代码。这对于维护一个可移植且易于管理的应用程序非常重要。
+
+1. 开发环境的配置文件名一般叫做：`application-dev.properties`
+
+```properties
+spring.datasource.username=dev
+spring.datasource.password=dev123
+spring.datasource.url=jdbc:mysql://localhost:3306/dev
+```
+
+2. 测试环境的配置文件名一般叫做：`application-test.properties`
+
+```properties
+spring.datasource.username=test
+spring.datasource.password=test123
+spring.datasource.url=jdbc:mysql://localhost:3306/test
+```
+
+3. 预生产环境的配置文件名一般叫做：`application-preprod.properties`
+
+```properties
+spring.datasource.username=preprod
+spring.datasource.password=preprod123
+spring.datasource.url=jdbc:mysql://localhost:3306/preprod
+```
+
+4. 生产环境的配置文件名一般叫做：`application-prod.properties`
+
+```properties
+spring.datasource.username=prod
+spring.datasource.password=prod123
+spring.datasource.url=jdbc:mysql://localhost:3306/prod
+```
+
+可通过以下操作修改使用的配置文件：
+
++ 第一种方式：在 `application.properties` 文件中添加这个配置：`spring.profiles.active=prod`，yaml 中则为：
+
+```yaml
+spring:
+  profiles:
+    active: prod
+```
+
++ 第二种方式：在命令行参数上添加：`--spring.profiles.active=prod`
+
+需要注意的是：
+
+就算没有合并或引入相关文件，
+
+```properties
+spring.config.import=optional:classpath:/config/application-mysql.properties,optional:classpath:/config/application-redis.properties
+--spring.profiles.active=prod
+```
+
+但项目中存在该文件，
+
+```text
+config/
+├── application.properties
+├── application-mysql.properties
+├── application-redis.properties
+├── application-prod.properties  ← 存在！
+```
+
+那么 Spring Boot 就会：
+
+1. 先加载主配置 application.properties 
+2. 再自动加载 spring.config.import 引入的 application-mysql.properties 和 application-redis.properties 
+3. 接着根据 spring.profiles.active=prod，自动加载 application-prod.properties 
+4. 如果 application-prod.properties 中也写了 spring.config.import，它也会继续导入更多文件
+
+当然，如果配置了多个环境，且文件中存在相同的内容，那么最后加载的文件中的内容会覆盖前面的内容：
+
+1. application.properties（主配置）
+2. spring.config.import 指定的文件（如 mysql/redis）
+3. application-{profile}.properties（如 application-prod.properties）
+4. 命令行参数、系统环境变量、@TestPropertySource 等
+
+****
+### 5.6 将配置绑定到bean
+
+#### 1. 绑定简单 bean
+
+SpringBoot 配置文件中的信息可以通过使用 @ConfigurationProperties(prefix = "配置文件中属性前缀") 将配置信息一次性赋值给 Bean 对象的属性，例如[EasyBeanConfig.java](./Demo1-first_code/src/main/java/com/cell/first/springboot/config/EasyBeanConfig.java)
+
+1. 配置文件中的各种属性要和 bean 对象的属性名对应上（属性名相同）
+2. 这样的 bean 需要使用 `@Component` 注解进行标注，纳入IoC容器的管理。`@Component`注解负责创建Bean对象，`@ConfigurationProperties(prefix = "app")`注解负责给bean对象的属性赋值
+3. bean 的属性需要是非 static 的属性
+4. 底层通过调用对应的 setter 方法进行数据的绑定
+
+****
+#### 2. 绑定嵌套 bean
+
+编写一个 [User](./Demo1-first_code/src/main/java/com/cell/first/springboot/bean/User.java)，一个 [Address](./Demo1-first_code/src/main/java/com/cell/first/springboot/bean/Address.java)，Address 作为 User 的嵌套字段，
+编写配置文件:
+
+```yaml
+app:
+  xyz:
+    username: Jack
+    age: 60
+    email: jack@123.com
+    address:
+      city: BJ
+      street: ChaoYang
+      zipcode: 123456
+```
+
+作为嵌套字段，由 User 类中的属性名作为上一级，Address 的属性作为下一级，但需要注意的是，Address 类不需要使用 @Component 注解纳入 IoC 容器管理。
+因为 Address 是作为字段而存在的，它不属于 Bean 的范畴，由 Spring 通过反射机制和类型推断自动创建和绑定，通过无参构造创建，setter 方法赋值
+
+****
+#### 3. 将配置赋值到 Map/List/Array 属性上
+
+绑定这些属性和绑定普通的一样，不过是在一个属性名下写多个：
+
+```yaml
+#数组
+names:
+  - jackson
+  - lucy
+  - lili
+
+#List集合
+products: 
+  - name: 西瓜
+    price: 3.0
+  - name: 苹果
+    price: 2.0
+
+#Map集合
+vips:
+  vip1:
+    name: 张三
+    age: 20
+  vip2:
+    name: 李四
+    age: 22
+```
+
+```properties
+# 数组（也可以看作字符串列表）
+names[0]=jackson
+names[1]=lucy
+names[2]=lili
+
+# List 集合（嵌套对象）
+products[0].name=西瓜
+products[0].price=3.0
+products[1].name=苹果
+products[1].price=2.0
+
+# Map 集合（key 是 vip1、vip2）
+vips.vip1.name=张三
+vips.vip1.age=20
+vips.vip2.name=李四
+vips.vip2.age=22
+```
+
+****
+#### 4. 将配置绑定到第三方对象
+
+假设一个第三方库[AliyunSmsProperties](./Demo1-first_code/src/main/java/com/cell/first/properties/AliyunSmsProperties.java)，通过注解显示注册它，
+通过一个[SmsConfig](./Demo1-first_code/src/main/java/com/cell/first/springboot/config/SmsConfig.java)配置文件使用它。
+
+如果这个第三方库无法添加修改代码，那么可以写一个包装类来达到修改的目的：
+
+```java
+@ConfigurationProperties(prefix = "sms")
+public class SmsPropertiesWrapper {
+    private AliyunSmsProperties props = new AliyunSmsProperties();
+    // 通过调用这个配置类的 get 方法获取第三方库的信息
+    public AliyunSmsProperties getProps() {
+        return props;
+    }
+    public void setProps(AliyunSmsProperties props) {
+        this.props = props;
+    }
+}
+```
+
+****
+#### 5. 指定数据来源
+
+使用 @PropertySource 注解指定配置文件的位置，这个配置文件可以是 `.properties`，也可以是 `.xml`，但不支持 yaml 格式的文件。
+
+```java
+@Configuration
+@ConfigurationProperties(prefix = "group")
+// 这种方式的命名可以随意
+@PropertySource("classpath:a/b/group-info.properties")
+public class Group {
+}
+```
+
+****
+#### 6. @ImportResource 注解
+
+创建Bean的三种方式总结：
+
++ 第一种方式：编写applicationContext.xml文件，在该文件中注册Bean，Spring容器启动时实例化配置文件中的Bean对象
++ 第二种方式：@Configuration注解结合@Bean注解
++ 第三种方式：@Component、@Service、@Controller、@Repository等注解
+
+在 SpringBoot 中可以通过此注解完成第一种方式，需要在主入口程序类上添加 @ImportResource("classpath:applicationContext.xml")，[测试](./Demo1-first_code/src/test/java/com/cell/first/springboot/test/XmlTest.java)
+
+****
+#### 7. Environment
+
+SpringBoot 框架在启动时会将系统配置、环境信息全部封装到对象中，如果要获取这些环境信息，可以调用 Environment 接口的方法，
+Environment 接口由 Spring 框架提供，Spring Boot 应用程序通常会使用 Spring 提供的实现类 AbstractEnvironment 及其子类来实现具体的环境功能
+
+Environment 对象封装的主要数据包括：
+
+1. Active Profiles: 当前激活的配置文件列表。Spring Boot允许应用程序定义不同的环境配置文件（如开发环境、测试环境和生产环境），通过激活不同的配置文件来改变应用程序的行为
+2. System Properties: 系统属性，通常是操作系统级别的属性，比如操作系统名称、Java版本等
+3. System Environment Variables: 系统环境变量，这些变量通常是由操作系统提供的，可以在启动应用程序时设置特定的值
+4. Command Line Arguments: 应用程序启动时传递给主方法的命令行参数
+5. Property Sources: Environment 还包含了一个 PropertySource 列表，这个列表包含了从不同来源加载的所有属性。PropertySource 可以来自多种地方，比如配置文件、系统属性、环境变量等
+
+[测试](./Demo1-first_code/src/main/java/com/cell/first/springboot/config/EnvironmentConfig.java)
+
+****
+## 6. SpringBoot 中进行 AOP 开发
+
+Spring Boot 的 AOP 编程和 Spring 框架中 AOP 编程的唯一区别是：引入依赖的方式不同，其他内容完全一样。Spring Boot中 AOP 编程需要引入 aop 启动器：
+
+```xml
+<!--aop启动器-->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+```
+
+不同类型的通知使用：
+
+- @Before：前置通知，方法执行前执行
+- @Around：环绕通知，方法执行前后都可执行
+- @After：后置通知，方法执行后执行（不论是否抛异常）
+- @AfterReturning：返回通知，方法成功返回后执行
+- @AfterThrowing：异常通知，抛出异常时执行
+
+步骤：
+
+- 第一步：定义切面类 [LogAspect](./Demo1-first_code/src/main/java/com/cell/first/springboot/aop/LogAspect.java)
+- 第二步：开启 AOP 自动代理支持：
+
+```java
+// Spring Framework 本身不会自动开启 AOP，需要手动加上此注解，但 Spring Boot 会自动开启
+// 强制使用 CGLIB 代理，不管目标类有没有接口
+@EnableAspectJAutoProxy(proxyTargetClass = true)
+```
+
+- 第三步：定义业务类 [OrderServiceImpl](./Demo1-first_code/src/main/java/com/cell/first/springboot/service/OrderServiceImpl.java)
+- 第四步：测试
+
+****
 
 
 

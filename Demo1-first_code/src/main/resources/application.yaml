@@ -1,0 +1,9 @@
+app:
+  xyz:
+    username: Jack
+    age: 60
+    email: jack@123.com
+    address:
+      city: BJ
+      street: ChaoYang
+      zipcode: 123456

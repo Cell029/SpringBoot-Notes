@@ -5,11 +5,14 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ImportResource;
 
 import java.util.Date;
 
 // 所有 springboot 应用的主入口程序必须使用 @SpringBootApplication 注解
 @SpringBootApplication
+// 将 xml 文件中的 Bean 纳入 IoC 容器管理
+@ImportResource("classpath:applicationContext.xml")
 public class MyApplication {
 
     @Bean
