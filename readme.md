@@ -997,8 +997,57 @@ Spring Boot 的 AOP 编程和 Spring 框架中 AOP 编程的唯一区别是：�
 - 第四步：测试
 
 ****
+# 三. SSM 整合
 
+## 1. 整合持久层框架 MyBatis
 
+### 编写数据源配置
+
+```properties
+# springboot 框架自动生成
+spring.application.name=Demo2-ssm
+
+# mybatis 连接数据库的数据源
+# HikariCP 是 Spring Boot 默认的连接池
+spring.datasource.type=com.zaxxer.hikari.HikariDataSource 
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.datasource.url=jdbc:mysql://localhost:3306/springboot-notes
+spring.datasource.username=root
+spring.datasource.password=123
+```
+
+### 编写 Mapper 接口
+
+使用 Mapper 接口查询数据，需要在主程序入口上添加 Mapper 包扫描
+
+```java
+// 只处理 Java 接口，不处理 XML 文件
+@MapperScan(basePackages = {"com.cell.first_ssm.mapper"})
+// 或者在每个 Mapper 接口上添加 @Mapper
+```
+
+然后配置 XML 映射文件路径：
+
+```properties
+# 告诉 mybatis 在哪找 Mapper 映射文件，这个配置必须指定，否则 MyBatis 找不到对应的 SQL 映射文件，调用 Mapper 接口会报错
+mybatis.mapper-locations=classpath:mapper/*.xml
+```
+
+字段自动映射：
+
+当使用MyBatis作为ORM框架时，默认情况下它会将SQL查询结果映射到Java对象的属性上。如果数据库中的字段名与Java对象的属性名不一致，
+那么就需要手动为每个字段指定相应的属性名，或者使用某种方式来自动转换这些名称：
+
+```properties
+# 将下划线分隔的字段名转换成驼峰式命名
+mybatis.configuration.map-underscore-to-camel-case=true
+```
+
+### 测试
+
+[MybatisTest.java](./Demo2-ssm/src/test/java/com/cell/first_ssm/test/MybatisTest.java)
+
+****
 
 
 
