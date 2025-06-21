@@ -1048,6 +1048,253 @@ mybatis.configuration.map-underscore-to-camel-case=true
 [MybatisTest.java](./Demo2-ssm/src/test/java/com/cell/first_ssm/test/MybatisTest.java)
 
 ****
+## 2. Lombok 库
+
+Lombok 是一个 Java 库，它可以通过注解的方式减少 Java 代码中的样板代码。Lombok 可以自动生成构造函数、getter、setter、equals、hashCode、toString 方法等。
+Lombok 只是一个编译阶段的库，能够自动补充代码，在 Java 程序运行阶段并不起作用，因此 Lombok 库并不会影响 Java 程序的执行效率
+
+### 2.1 Lombok 的主要注解
+
+@Data：
+
++ 等价于 `@ToString` + `@EqualsAndHashCode` + `@Getter` + `@Setter` + `@RequiredArgsConstructor`
++ 用于生成：必要参数的构造方法（仅包含 final 字段）、getter、setter、toString、equals 和 hashcode 方法
+
+@Getter / @Setter：
+
++ 分别用于生成所有的 getter 和 setter 方法
++ 可以作用于整个类，也可以作用于特定的字段
+
+@NoArgsConstructor：
+
++ 生成一个无参构造方法
+
+@AllArgsConstructor：
+
++ 生成一个包含所有实例变量的构造器
+
+@RequiredArgsConstructor：
+
+- 生成包含所有被 `final` 修饰符修饰的实例变量的构造方法
+- 如果没有包含 final 的实例变量，则自动生成无参数构造方法
+
+@ToString / @EqualsAndHashCode：
+
++ 用于生成 toString 和 equals/hashCode 方法
++ 这两个注解都有 exclude 属性，通过这个属性可以定制 toString、hashCode、equals 方法，将标记的字段排除
+
+```java
+@ToString(exclude = {"password"})
+public class User {
+    private String username;
+
+    // 或者使用此方式排除
+    // @ToString.Exclude
+    private String password;
+}
+```
+
+****
+### 2.2 Lombok 其他常用注解
+
+#### 1. @Value
+
+该注解会给所有属性添加 `final`，给所有属性提供 `getter` 方法，自动生成 `toString`、`hashCode`、`equals`，通过这个注解可以创建不可变对象。
+使用此注解会生成全参数构造方法、getter方法、hashCode、equals、toString方法（因为字段加了 finale，所以没有setter方法）
+
+#### 2. @Builder
+
+##### GoF23 种设计模式之一：建造模式
+
+建造者模式是一种创建型设计模式，它将一个复杂对象的构建过程与它的表示分离，使得同样的构建过程可以创建不同的表示，可用于解决对象创建时参数过多的问题，
+它通过将对象的构造过程与其表示分离，使得构造过程可以逐步完成，而不是一次性提供所有参数
+
+适用场景：
+
+1. 对象的创建过程复杂（有很多参数或依赖关系）
+2. 需要创建的对象具有多种配置方式或组合方式
+3. 构造函数参数太多，参数顺序容易混淆
+4. 希望构建过程可读性强、可扩展、可链式调用
+
+建造者模式主要包含以下四个角色：
+
+1. Product（产品类）：是要构建的复杂对象
+2. Builder（抽象建造者）：是构建 Product 的规范（接口/抽象类）
+3. ConcreteBuilder（具体建造者）：实现 Builder 接口，完成具体构建逻辑
+4. Director（指挥者）：控制建造流程，将各个步骤组合成完整的产品
+
+举例：
+
+- 构建产品类 [Computer](./Demo2-ssm/src/main/java/com/cell/first_ssm/builder/bean/Computer.java)
+
+Computer 是最终要创建的对象，是建造者模式中的产品类（Product），它本身没有复杂的构建逻辑，只是数据容器，通过不同的 Builder 设置它的各个部件，如 CPU、内存、硬盘，
+例如：
+
+```java
+Computer c = new Computer();
+c.setCpu("i9");
+c.setRam("32GB");
+c.setStorage("2TB");
+```
+
+建造者模式的作用就是把这些设置过程抽象出来封装管理
+
+- 创建抽象建造者 [ComputerBuilder](./Demo2-ssm/src/main/java/com/cell/first_ssm/builder/bean/ComputerBuilder.java)
+
+定义了创建一个 Computer 的步骤标准，包括建 CPU、建 RAM、建硬盘三个步骤。
+多个建造者类（比如游戏电脑、办公电脑、家用电脑）都要构建 Computer，但步骤逻辑不同，这个抽象类是规范，确保所有建造者都实现这些步骤:
+
+```java
+public abstract void buildCpu();
+public abstract void buildRam();
+public abstract void buildStorage();
+```
+
+- 创建具体建造者 [GamingComputerBuilder](./Demo2-ssm/src/main/java/com/cell/first_ssm/builder/bean/GamingComputerBuilder.java)
+
+这个类真正决定了如何构建一台游戏电脑：用什么 CPU、内存多大、用 SSD 还是机械硬盘。因为不同的 builder 构造策略不同，如果要构建办公电脑，就可以创建一个 OfficeComputerBuilder。
+不同构建逻辑封装在不同类中，遵守开闭原则
+
+- 创建指挥者 [Director](./Demo2-ssm/src/main/java/com/cell/first_ssm/builder/bean/Director.java)
+
+控制构建的顺序，即告诉建造者“现在该构建 CPU，再构建 RAM，然后是硬盘”。如果有多个 builder 但想统一一套构建顺序，就需要这个 Director，否则每个 builder 都要重复控制构建顺序的逻辑。
+
+```java
+public Computer construct() {
+    builder.buildCpu();
+    builder.buildRam();
+    builder.buildStorage();
+    return builder.getResult();
+}
+```
+
+- 使用
+
+```java
+ComputerBuilder builder = new GamingComputerBuilder();
+Director director = new Director(builder);
+Computer computer = director.construct();
+System.out.println(computer);
+```
+
+****
+#### 使用 @Builder 注解自动生成建造模式的代码
+
+通过此注解，只需要保留一个 Computer 类即可，@Builder 自动生成一个静态内部类 ComputerBuilder，里面有 cpu()、ram()、storage() 方法和 build() 方法
+
+```java
+@Builder
+@ToString
+public class Computer {
+    private String cpu;
+    private String ram;
+    private String storage;
+}
+```
+
+使用：
+
+```java
+Computer computer = Computer.builder()
+                            .cpu("AMD Ryzen 9") // 等价于 buildCpu
+                            .ram("64GB DDR5") // 等价于 buildRam
+                            .storage("2TB NVMe SSD") // 的国家与 buildStorage
+                            .build(); // 等价于 Director#construct
+System.out.println(computer);
+```
+
+****
+#### @Singular
+
+@Singular 注解是辅助 @Builder 注解的，当被建造的对象的属性是一个集合，这个集合属性使用 @Singular 注解进行标注的话，可以连续调用集合属性对应的方法完成多个元素的添加（不支持数组）。
+如果没有这个注解，则无法连续调用方法完成多个元素的添加
+
+```java
+@Builder
+public class Team {
+    private String name;
+
+    @Singular
+    private List<String> members;
+}
+```
+
+```java
+Team team = Team.builder()
+                .name("开发组")
+                .member("Alice") // 添加单个成员
+                .member("Bob")
+                .build();
+
+// 也可也一次性添加，即未使用 @Singular
+Team.builder()
+    .name("开发组")
+    .members(Arrays.asList("Alice", "Bob")) 
+    .build();
+```
+
+此注解大致会生成如下的代码：
+
+```java
+public static class TeamBuilder {
+    private List<String> members = new ArrayList<>();
+    // @Singular 默认通过字段名生成方法名，List<String> members 生成方法：member() / members()
+    public TeamBuilder member(String member) {
+        this.members.add(member);
+        return this;
+    }
+    public TeamBuilder members(Collection<? extends String> members) {
+        this.members.addAll(members);
+        return this;
+    }
+    public Team build() {
+        team.members = Collections.unmodifiableList(new ArrayList<>(members));
+        return team;
+    }
+}
+```
+
+****
+#### @Slf4j
+
+Lombok 支持多种日志框架的注解，可以根据你使用的日志框架选择合适的注解，以下是 Lombok 提供的部分日志注解及其对应的日志框架：
+
+1. `@Log4j`：
+    - 自动生成一个 `org.apache.log4j.Logger` 对象
+    - 适用于 Apache Log4j 1.x 版本
+2. `@Slf4j`：
+    - 自动生成一个 `org.slf4j.Logger` 对象
+    - 适用于 SLF4J（Simple Logging Facade for Java），这是一种日志门面，可以与多种实际的日志框架（如 Logback、Log4j 等）集成
+3. `@Log4j2`：
+    - 自动生成一个 `org.apache.logging.log4j.Logger` 对象
+    - 适用于 Apache Log4j 2.x 版本
+
+选择哪个注解取决于使用的日志框架，例如：
+
++ 如果使用的是 SLF4J，可以选择 `@Slf4j`
++ 如果使用的是 Log4j 1.x，可以选择 `@Log4j`
++ 如果使用的是 Log4j 2.x，可以选择 `@Log4j2`
+
+需要注意的是：确保在使用这些注解之前，已经在项目中引入了相应的日志框架依赖。例如，如果使用 SLF4J，就需要在项目中添加 SLF4J 的依赖，以及一个具体的日志实现（如 Logback），对于其他日志框架，也需要相应地添加依赖。
+
+****
+## 3. MyBatis 逆向工程
+
+MyBatis Generator（MBG）是一款自动根据数据库表结构生成代码的工具，可以快速生成实体类（POJO）、Mapper 接口和 Mapper 映射 XML 文件，使用时需下载插件 Free MyBatis Tool。
+
+****
+## 4. 整合 SpringMVC（SSM整合）
+
+SSM整合：Spring + SpringMVC + MyBatis
+
+Spring Boot 项目本身就是基于 Spring 框架实现的，因此 SSM 整合时只需要整合 MyBatis 框架之后，引入 web启动器即可完成 SSM 整合
+
+****
+
+
+
+
+
 
 
 

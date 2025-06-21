@@ -1,5 +1,7 @@
 package com.cell.first_ssm.test;
 
+import com.cell.first_ssm.bean.Student;
+import com.cell.first_ssm.mapper.StudentMapper;
 import com.cell.first_ssm.mapper.VipMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +14,9 @@ import java.util.List;
 public class MybatisTest {
     @Autowired
     private VipMapper vipMapper;
+
+    @Autowired
+    private StudentMapper studentMapper;
 
     @Test
     public void testSelectAll() {
@@ -43,5 +48,11 @@ public class MybatisTest {
     @Test
     public void testDelete() {
         vipMapper.deleteById(3L);
+    }
+
+    @Test
+    public void testSelectByStuId() {
+        Student student = studentMapper.selectByPrimaryKey(1L);
+        System.out.println(student);
     }
 }
