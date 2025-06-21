@@ -1287,9 +1287,233 @@ MyBatis Generator（MBG）是一款自动根据数据库表结构生成代码的
 
 SSM整合：Spring + SpringMVC + MyBatis
 
-Spring Boot 项目本身就是基于 Spring 框架实现的，因此 SSM 整合时只需要整合 MyBatis 框架之后，引入 web启动器即可完成 SSM 整合
+Spring Boot 项目本身就是基于 Spring 框架实现的，因此 SSM 整合时只需要整合 MyBatis 框架之后，引入 web 启动器即可完成 SSM 整合
 
 ****
+# 四. Spring Boot 自动配置
+
+## 1. 自动配置概述
+
+### 1.1 SpringBoot 的两大核心
+
+1. **启动器（Starter）**：
+
+Spring Boot 提供了一系列的 Starter POMs，它们是一组预定义的依赖关系，在项目中引入一个 Starter POM 时，它会自动包含所有必要的 Spring 组件以及合理的默认设置。
+开发者不需要手动管理复杂的依赖关系，也不需要担心版本冲突的问题，减少了配置上的出错可能
+
+2. **自动配置（Auto-Configuration）**：  
+
+当添加了特定的 Starter POM 后，Spring Boot 会根据类路径上存在的 jar 包来自动配置 Bean（自动配置相关组件），
+比如：SpringBoot 发现类路径上存在 mybatis 相关的类，例如 SqlSessionFactory.class，那么 SpringBoot 将自动配置 mybatis 相关的所有 Bean
+
+在没使用 Spring Boot 框架的时候，用 Spring 集成 MyBatis 框架，需要进行大量的配置：
+
+```xml
+<!-- 数据源配置 -->
+<bean id="dataSource" class=""/>
+<!-- SqlSessionFactory -->
+<bean id="sqlSessionFactory" class=""/>
+<!-- Mapper 扫描器 -->
+<!-- 事务管理器 -->
+...
+```
+
+使用了 Spring Boot 框架之后，这些配置都不需要提供了，自动配置机制可以全部按照默认的方式自动化完成，只需要在 `application.yml` 中提供以下的配置即可：
+
+```yaml
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/springboot
+    username: root
+    password: 123
+    type: com.zaxxer.hikari.HikariDataSource
+```
+
+****
+### 1.2 默认的包扫描规则
+
+springboot 默认情况下只扫描主入口类所在包及子包下的类，这是因为 @SpringBootApplication 注解被 @ComponentScan 标注，代替 spring 以前的这个配置：`<context:component-scan base-packages="主入口类所在包"/>`。
+当然也可也通过以下方式扫描其他包：
+
++ 第一种：@SpringBootApplication(scanBasePackages = "com")
++ 第二种：@ComponentScan("com")
+
+```java
+// 通过以下注解达到类似 @SpringBootApplication 的效果
+@SpringBootConfiguration
+@EnableAutoConfiguration
+@ComponentScan("com")
+public class TestApplication {}
+```
+
+****
+### 1.3 默认配置
+
+springboot 为功能的实现提供了非常多的默认配置，例如：
+
+- tomcat 服务器端口号在没有配置的情况下默认是 8080，但也可以在 application.properties 文件中进行重新配置：server.port=8081
+- 配置 thymeleaf 的模板引擎时，默认的模板引擎前缀是 classpath:/templates/，默认的后缀是 `.html`，这些信息也可也修改：
+
+```properties
+spring.thymeleaf.prefix=classpath:/templates/html
+spring.thymeleaf.suffix=.html
+```
+
+springboot 中提供了大量的 XxxProperties 属性类，这些类会使用 @ConfigurationProperties 注解来接收配置的属性信息
+
+****
+### 1.4 条件注解
+
+SpringBoot 提供了非常多的自动配置类，但是这些自动配置并不是全部生效，它是按需加载的，导入了哪个启动器，则该启动器对应的自动配置类才会被加载。
+任何启动器都会关联引入一个 `spring-boot-starter` 启动器，它是 springboot 框架最核心的启动器。
+而 `spring-boot-starter` 又关联引入了 `spring-boot-autoconfigure`，所有的自动配置类都在这里
+
+而按需处理则依靠 SpringBoot 框架中的条件注解来实现的，Spring Boot框架中的 @ConditionalOnXxx 系列注解属于条件注解（Conditional Annotations），
+它们用于基于某些条件来决定是否应该创建一个或一组 Bean。这些注解通常用在自动配置类上，当注解中的条件成立时才会执行相应的操作，以确保只有在特定条件满足时才会应用相应的配置。
+
++ @ConditionalOnClass：当指定的类存在时，才创建Bean
++ @ConditionalOnMissingClass：当指定的类不存在时，才创建Bean
++ @ConditionalOnBean：当容器中存在指定的Bean时，才创建Bean
++ @ConditionalOnMissingBean：当容器中不存在指定的Bean时，才创建Bean
++ @ConditionalOnProperty：当配置文件中存在指定的属性时，才创建Bean。也可以设置属性值需要匹配的值
++ @ConditionalOnResource：当指定的资源存在时，才创建Bean
++ @ConditionalOnWebApplication：当应用程序是Web应用时，才创建Bean
++ @ConditionalOnNotWebApplication：当应用程序不是Web应用时，才创建Bean
+
+如果IoC容器当中存在 A Bean，就创建 B Bean：
+
+```java
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public A a(){
+        return new A();
+    }
+
+    @ConditionalOnBean(A.class)
+    @Bean
+    public B b(){
+        return new B();
+    }
+}
+```
+
+如果IoC容器当中不存在 A Bean，就创建 B Bean：
+
+```java
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public A a(){
+        return new A();
+    }
+
+    @ConditionalOnMissingBean(A.class)
+    @Bean
+    public B b(){
+        return new B();
+    }
+}
+```
+
+当类路径当中存在 DispatcherServlet 类，则启用配置，反之则不启用配置：
+
+```java
+@ConditionalOnClass(name = {"org.springframework.web.servlet.DispatcherServlet"})
+@Configuration
+public class MyConfig {
+    @Bean
+    public A getA(){
+        return new A();
+    }
+}
+```
+
+****
+## 2. 自动配置实现原理
+
+程序从 main 方法进入执行，主入口类上使用 @SpringBootApplication 进行了标注，而 @SpringBootApplication 是一个复合注解，它里面包含 @EnableAutoConfiguration 注解，
+代表启动了自动配置，可以将一些需要用到的配置类全部加载。同样的 @EnableAutoConfiguration 也是个复合注解，它被 @Import(AutoConfigurationImportSelector.class) 标注，
+而 @Import 注解就是把 AutoConfigurationImportSelector 作为一个 Bean 加载到 IoC 容器中，而这个 Bean 主要就是负责收集和选择所有符合条件的自动配置类。
+
+在 AutoConfigurationImportSelector 类中的 getAutoConfigurationEntry() 方法就是用来加载并筛选自动配置类的：
+
+```java
+ protected AutoConfigurationEntry getAutoConfigurationEntry(AnnotationMetadata annotationMetadata) {
+     if (!this.isEnabled(annotationMetadata)) {
+         return EMPTY_ENTRY;
+     } else {
+         // 获取 @EnableAutoConfiguration 的所有属性（比如 exclude）
+         AnnotationAttributes attributes = this.getAttributes(annotationMetadata);
+         // 获取待选的自动配置类，即引入依赖时关联的所有自动配置类
+         List<String> configurations = this.getCandidateConfigurations(annotationMetadata, attributes);
+         // 去重，确保自动配置类不重复
+         configurations = this.removeDuplicates(configurations);
+         // 获取注解属性 exclude 指定排除的配置类
+         Set<String> exclusions = this.getExclusions(annotationMetadata, attributes);
+         this.checkExcludedClasses(configurations, exclusions);
+         // 移除那些被选择排除的配置类
+         configurations.removeAll(exclusions);
+         // 筛选需要用到的自动配置类（条件过滤），会检查 @ConditionalXxx 注解
+         configurations = this.getConfigurationClassFilter().filter(configurations);
+         this.fireAutoConfigurationImportEvents(configurations, exclusions);
+         return new AutoConfigurationEntry(configurations, exclusions);
+     }
+ }
+```
+
+- List<String> configurations = this.getCandidateConfigurations(annotationMetadata, attributes);
+
+```java
+protected List<String> getCandidateConfigurations(AnnotationMetadata metadata, AnnotationAttributes attributes) {
+     List<String> configurations = ImportCandidates.load(AutoConfiguration.class, this.getBeanClassLoader()).getCandidates();
+     Assert.notEmpty(configurations, "No auto configuration classes found in META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports. If you are using a custom packaging, make sure that file is correct.");
+     return configurations;
+ }
+```
+
+该方法里有个 load() 方法，它把 AutoConfiguration.class 作为参数传递进去
+
+```java
+public static ImportCandidates load(Class<?> annotation, ClassLoader classLoader) {
+     Assert.notNull(annotation, "'annotation' must not be null");
+     ClassLoader classLoaderToUse = decideClassloader(classLoader);
+     String location = String.format("META-INF/spring/%s.imports", annotation.getName());
+     Enumeration<URL> urls = findUrlsInClasspath(classLoaderToUse, location);
+     List<String> importCandidates = new ArrayList();
+     while(urls.hasMoreElements()) {
+         URL url = (URL)urls.nextElement();
+         importCandidates.addAll(readCandidateConfigurations(url));
+     }
+     return new ImportCandidates(importCandidates);
+ }
+```
+
+annotation.getName() 是用来获取  AutoConfiguration 的全类名，即 org.springframework.boot.autoconfigure.AutoConfiguration，
+然后通过 format() 方法拼接获取到引入依赖时关联的所有配置类的路径，然后返回，接着通过一系列的过滤，选出实际开发中要用到的一些自动配置类，导入 IoC 容器管理
+
+在自动配置类中，它们会通过 @ConditionalXxx 注解筛选条件，例如 DispatcherServletConfiguration：
+
+```java
+@AutoConfigureOrder(Integer.MIN_VALUE)
+@AutoConfiguration(after = {ServletWebServerFactoryAutoConfiguration.class})
+@ConditionalOnWebApplication(type = Type.SERVLET) // 必须是一个 Web 应用
+@ConditionalOnClass({DispatcherServlet.class}) // 必须含有 DispatcherServlet 类（SpringMVC 底层封装了）
+public class DispatcherServletAutoConfiguration {
+}
+```
+
+有些自动配置类也会使用 @EnableConfigurationProperties(xxx.class) 来引入一些配置属性类，让 IoC 容器进行管理，然后就可以通过 @ConfigurationProperties(prefix = "...") 来绑定指定前缀的数据信息，
+所以有些 application 文件中的默认值需要更改时通常需要指定前缀，例如修改端口号： server.port = 8081
+
+****
+
+
+
+
 
 
 
