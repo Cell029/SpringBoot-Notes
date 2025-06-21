@@ -1510,6 +1510,82 @@ public class DispatcherServletAutoConfiguration {
 所以有些 application 文件中的默认值需要更改时通常需要指定前缀，例如修改端口号： server.port = 8081
 
 ****
+# 五. Spring Boot 的 Web 开发
+
+## 1. SpringBoot 的 web 自动配置
+
+web 配置依赖原理同上
+
+### 1.1 通过 web 自动配置类逆推 web 配置的 prefix
+
+在自动配置列表中可以找到 web 自动配置相关的类：
+
+```text
+org.springframework.boot.autoconfigure.web.servlet.DispatcherServletAutoConfiguration
+org.springframework.boot.autoconfigure.web.servlet.ServletWebServerFactoryAutoConfiguration
+org.springframework.boot.autoconfigure.web.servlet.error.ErrorMvcAutoConfiguration
+org.springframework.boot.autoconfigure.web.servlet.HttpEncodingAutoConfiguration
+org.springframework.boot.autoconfigure.web.servlet.MultipartAutoConfiguration
+org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration
+org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration
+org.springframework.boot.autoconfigure.web.client.RestTemplateAutoConfiguration
+org.springframework.boot.autoconfigure.web.embedded.EmbeddedWebServerFactoryCustomizerAutoConfiguration
+```
+
+通过跳转到这些配置类，查看它们用 @EnableConfigurationProperties 注册了哪些配置属性类，然后再到这些类中查看它们使用的属性前缀是什么，常用的如下：
+
+```properties
+# SpringMVC相关配置
+spring.mvc.
+
+# web开发通用配置
+spring.web.
+
+# 文件上传配置
+spring.servlet.multipart.
+
+# 服务器配置
+server.
+```
+
+****
+### 1.2 Web 自动配置的默认配置
+
+Spring Boot 的 Web 自动配置默认配置了：Spring MVC 核心组件、静态资源、Jackson、异常处理、参数转换、视图解析、格式化、跨域支持等
+
+1. DispatcherServlet
+
+Spring Boot 会自动注册 DispatcherServlet 到 Servlet 容器中，默认映射为 `/`
+
+2. 静态资源自动映射
+
+Spring Boot 会默认从这些路径加载静态资源：
+
+```text
+/static
+/public
+/resources
+/META-INF/resources
+```
+
+3. 视图解析器
+
+默认使用 InternalResourceViewResolver，根据引入的模板依赖决定视图的前后缀，例如 thymeleaf 模板：前缀：classpath:/templates/；后缀：.html
+
+4. 消息转换器（HttpMessageConverters）
+
+自动支持 JSON、XML、字符串等请求/响应数据类型转换
+
+5. 错误处理
+
+默认处理所有异常并返回 /error 页面或 JSON
+
+6. WebMvcConfigurer 支持
+
+Spring Boot 提供了一个扩展点 WebMvcConfigurerComposite，可以通过实现 WebMvcConfigurer 接口，自定义 Web 配置（如拦截器、跨域、视图等），但是在默认配置的基础上进行额外的添加
+
+****
+
 
 
 
