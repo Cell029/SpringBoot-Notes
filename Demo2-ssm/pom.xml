@@ -71,6 +71,12 @@
             <artifactId>vue</artifactId>
             <version>3.5.12</version>
         </dependency>
+
+        <!--将 java 对象转换成 xml 格式的字符串-->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-xml</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

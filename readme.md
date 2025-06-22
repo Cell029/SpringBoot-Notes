@@ -1954,9 +1954,242 @@ favicon（也称为“收藏夹图标”或“网站图标”）是大多数现�
 ****
 ## 4. web 的手动配置（静态资源处理）
 
+如果对 SpringBoot 默认的静态资源处理方式不满意，则可以通过以下方式来改变这些默认的配置：
+
+- 第一种：修改配置文件方式，通过修改`application.properties`或`application.yml` 来添加`spring.mvc`和`spring.web`相关的配置
+- 第二种：编写代码方式，SpringMVC 框架提供了 `WebMvcConfigurer` 接口，可以实现它，并对应重写接口中的方法即可改变默认的配置行为
+
+### 4.1 修改配置文件
+
+```properties
+# Spring MVC的相关配置
+# 1. 设置webjars静态资源的请求路径的前缀
+spring.mvc.webjars-path-pattern=/wjs/**
+# 2. 设置普通静态资源的请求路径的前缀
+spring.mvc.static-path-pattern=/static/**
+# 3. 修改静态资源存放位置
+spring.web.resources.static-locations=classpath:/static1/,classpath:/static2/
+```
+
+修改后就不能访问到默认路径下的 index 页面了，但是通过 `http://localhost:8080/static/index.html或者其他资源` 可以访问到 classpath:/META-INF/resources 目录下的资源，
+证明这个路径是默认加载路径，不受手动配置影响
+
+****
+### 4.2 编写实现类
+
+想要定制Spring MVC的行为，也可以编写类实现Spring MVC框架提供的一个接口 WebMvcConfigurer，而编写的类只要纳入IoC容器的管理就可以实现配置的修改，因此有两种实现方式：
+
++ 第一种：编写类实现 WebMvcConfigurer 接口，重写对应的方法
++ 第二种：以组件的形式存在：编写一个方法，用 @Bean 注解标注
+
+#### 编写实现类并重写方法
+
+对于 web 开发来说，配置类一般起名为： WebConfig ，配置类一般存放到 config 包下，
+因此在 SpringBoot 主入口程序同级目录下新建 config 包，在 config 包下新建 [WebConfig](./Demo2-ssm/src/main/java/com/cell/web/config/WebConfig.java) 类
+
+****
+#### 使用 @Bean
+
+通过 @Bean 的方式，以函数式风格注册 WebMvcConfigurer 实例，核心是返回一个 WebMvcConfigurer 实例，但并不推荐这么用
+
+```java
+@Bean
+ public WebMvcConfigurer addResourceHandlers(){
+     return new WebMvcConfigurer() {
+         @Override
+         public void addResourceHandlers(ResourceHandlerRegistry registry) {
+             registry.addResourceHandler("/static/**")
+                     .addResourceLocations("classpath:/static1/", "classpath:/static2/");
+         }
+     };
+ }
+```
+
+****
+### 4.3 配置生效问题
+
+只要写一个类实现了 WebMvcConfigurer 接口，并被 Spring 容器管理，Spring Boot 会自动发现它，并在 MVC 初始化时合并配置；默认的配置同理，也会自动发现并初始化
+
+WebMvcAutoConfiguration 中有个核心内部类 EnableWebMvcConfiguration，它继承了 DelegatingWebMvcConfiguration，这个类的作用是在不禁用自动配置的前提下，
+收集所有用户自定义的 WebMvcConfigurer 实现并委托调用，它里面定义了一个组合对象
+
+```java
+// 创建组合对象
+private final WebMvcConfigurerComposite configurers = new WebMvcConfigurerComposite();
+```
+
+也同时定义了一个自动注入的 setter 方法,因为它在该方法上使用了 @Autowired 注解，所以 Spring 会从容器中查找所有实现了 WebMvcConfigurer 接口的 Bean 实例，
+然后封装成一个集合，前提是这些实现类使用了相应的注解，例如 @Configuration
+
+```java
+@Autowired(required = false)
+ public void setConfigurers(List<WebMvcConfigurer> configurers) {
+     if (!CollectionUtils.isEmpty(configurers)) {
+         this.configurers.addWebMvcConfigurers(configurers);
+     }
+ }
+```
+
+这里面又调用了组合对象的一个组合方法，而该组合对象中又有一个 List 集合，专门存放在 DelegatingWebMvcConfiguration 中注入的 configurers，后续可以通过集合拿出对应的实现类，
+然后调用对应的方法
+
+```java
+private final List<WebMvcConfigurer> delegates = new ArrayList();
+
+public void addWebMvcConfigurers(List<WebMvcConfigurer> configurers) {
+     if (!CollectionUtils.isEmpty(configurers)) {
+         // 讲 configurers 结合中的所有元素添加进 delegates 集合
+         this.delegates.addAll(configurers);
+     }
+ }
+```
+
+例如 addInterceptors() 组合方法，它通过遍历集合中的所有实现类，依次调用 addInterceptors() 方法，最终会调用到重写的对应的方法，配置的拦截器方法就是被调用在这里
+
+```java
+@Override
+public void addInterceptors(InterceptorRegistry registry) {
+    for (WebMvcConfigurer delegate : this.delegates) {
+        delegate.addInterceptors(registry);
+    }
+}
+```
+
+WebMvcConfigurer 接口中的所有方法都是 default 方法，默认有空实现，所以并不会导致有些方法不存在导致程序报错，
+而这些方法最终是由 DelegatingWebMvcConfiguration 的父类 WebMvcConfigurationSupport 调用的，
+这些调用发生在 Spring MVC 初始化过程中，由 Spring 框架自己驱动执行
+
+需要注意的是：如果实现的是 configureXXX() 方法，那会影响默认配置（因为自己构建的是完整配置），如果实现的是 extendXXX() 或 addXXX()，那只是追加，不会影响默认配置。
+
+对于 WebMvcConfigurerComposite 类的代码来说，它是一个非常典型的组合模式，是一种结构型设计模式：
+
+1. 组合多个 WebMvcConfigurer 实例：WebMvcConfigurerComposite 通过 delegates 列表组合了多个 WebMvcConfigurer 实例
+2. 统一接口：WebMvcConfigurerComposite 实现了 WebMvcConfigurer 接口，因此可以像一个单一的 WebMvcConfigurer 一样被使用
+3. 代理调用：在实现 WebMvcConfigurer 接口的方法时，WebMvcConfigurerComposite 会遍历 delegates 列表，调用每个 WebMvcConfigurer 实例的相应方法
+
+****
+## 5. web 请求的路径匹配
+
+在 Spring Boot3 中，对 web 请求的路径匹配提供了两种规则：
+
++ 第一种：AntPathMatcher（Ant风格），较旧
++ 第二种：PathPatternParser（从 Spring5.3、SpringBoot2.4 中引入的），效率比Ant高，一般新项目中使用
 
 
+### 5.1 AntPathMatcher
 
+SpringBoot3 中默认使用的是 PathPatternParser，不需要任何配置，如果要使用 AntPathMatcher，就需要进行如下的配置：
+
+```properties
+spring.mvc.pathmatch.matching-strategy=ant_path_matcher
+```
+
+匹配规则：
+
+- `*`:匹配任意数量的字符，但不跨目录（即不匹配 /），例如：/foo/*.html 匹配 /foo/a.html, /foo/b.html，不匹配 /foo/bar/b.html
+- `**`:匹配任意层级的路径，包括 / ，例如：/foo/** 匹配 /foo/, /foo/a, /foo/a/b/c
+- `?`:匹配单个任意字符（不包含 /），例如：/data?.json 匹配 /data1.json, /datab.json，不匹配 /data12.json
+- `[]`:匹配字符集合或范围中的任意一个字符，例如：/foo[a-c]bar 匹配 /fooabar, /foobbar, /foocbar，不匹配 /foodbar
+- `{}`:匹配路径变量，占位符，实际匹配时提取值，例如：/users/{id} 匹配 /users/42，提取 id=42，不匹配 /users/（变量不能为空）
+
+****
+### 5.2 PathPatternParser
+
+项目中不做配置，或者按照以下方式配置，都是 PathPatternParser：spring.mvc.pathmatch.matching-strategy=path_pattern_parser。
+PathPatternParser 风格是兼容 Ant 风格的，只有一个地方不支持，Ant 支持。在 Ant 风格中，`**` 可以出现在任意位置，
+在 PathPatternParser 中只允许 `**` 出现在路径的末尾
+
+****
+## 6. 内容协商
+
+内容协商机制是指服务器根据客户端的请求来决定返回资源的最佳表示形式，即客户端要什么格式的数据，后端就应该返回什么格式的数据，在实际开发中可能会要求不同格式的数据：
+
++ 遗留的老客户端系统，仍然处理的是XML格式的数据
++ 要求处理速度快的这种客户端系统，一般要求返回JSON格式的数据
++ 要求安全性高的客户端系统，一般要求返回XML格式的数据
+
+### 6.1 实现内容协商的方式
+
+通常通过 HTTP 请求头（如 Accept）或请求参数（如 format）来指定客户端偏好接收的内容类型（如JSON、XML等），服务器会根据这些信息选择最合适的格式进行响应。
+
+#### 通过HTTP请求头（如 Accept）
+
+SpringBoot 框架中，在程序员不做任何配置的情况下，优先考虑的是这种方式。
+服务器会根据客户端发送请求时提交的请求头中的"Accept: application/json" 或 "Accept: application/xml" 或 "Accept: text/html"来决定响应什么格式的数据。
+
+客户端发送请求给服务器的时候，如何设置请求头的 Accept？有以下几种常见实现方式：
+
++ 写代码
+   - fetch API
+   - ajax的XMLHttpRequest
+   - axios库
+   - jQuery库......
++ 用工具
+   - 接口测试工具，例如：Postman、Apifox 等
+   - 命令行工具：curl
+
+第一步：引入一个依赖
+
+```xml
+<!--将 java 对象转换成 xml 格式的字符串-->
+<dependency>
+   <groupId>com.fasterxml.jackson.dataformat</groupId>
+   <artifactId>jackson-dataformat-xml</artifactId>
+</dependency>
+```
+
+第二步：在实体类上添加一个注解
+
+```java
+// 添加这个注解可以将 java 对象转换成 xml 格式字符串
+@JacksonXmlRootElement
+public class User {
+}
+```
+
+第三步：在黑窗口中输入 `curl -H "Accept: application/xml" http://localhost:8080/detail`
+
+```text
+<User>
+    <username>jack</username>
+    <age>30</age>
+</User>
+
+// json 格式则为
+{
+    "username":"jack",
+    "age":30
+}
+```
+
+****
+#### 通过请求参数（如 format）
+
+要使用这种方式就需要通过配置文件开启： 
+
+```properties
+# 内容协商时，优先考虑请求参数format方式。
+spring.mvc.contentnegotiation.favor-parameter=true
+```   
+
+然后输入命令行参数：
+
+```text
+curl http://localhost:8080/detail?format=xml
+curl http://localhost:8080/detail?format=json
+// 输出
+<User><username>jack</username><age>30</age></User>
+{"username":"jack","age":30}
+```
+
+也可也通过配置文件修改 format 的名字，例如修改为 type：
+
+```properties
+# 内容协商时，设置请求参数的名字，默认为format
+spring.mvc.contentnegotiation.parameter-name=type
+```
+
+****
 
 
 
