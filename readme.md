@@ -1585,6 +1585,377 @@ Spring Boot 会默认从这些路径加载静态资源：
 Spring Boot 提供了一个扩展点 WebMvcConfigurerComposite，可以通过实现 WebMvcConfigurer 接口，自定义 Web 配置（如拦截器、跨域、视图等），但是在默认配置的基础上进行额外的添加
 
 ****
+## 2. WebMvcAutoConfiguration 
+
+当使用 Spring Boot 开发 Web 应用时，它可以自动配置 Spring MVC 的各种默认设置，让开发者不需要编写大量样板配置代码
+
+### 2.1 WebMvc 自动配置是否生效的条件
+
+```java
+@AutoConfiguration(after = {DispatcherServletAutoConfiguration.class, TaskExecutionAutoConfiguration.class, ValidationAutoConfiguration.class})
+@ConditionalOnWebApplication(type = Type.SERVLET)
+@ConditionalOnClass({Servlet.class, DispatcherServlet.class, WebMvcConfigurer.class})
+@ConditionalOnMissingBean({WebMvcConfigurationSupport.class})
+@AutoConfigureOrder(-2147483638)
+@ImportRuntimeHints({WebResourcesRuntimeHints.class})
+public class WebMvcAutoConfiguration {
+}
+```
+
++ @AutoConfiguration(after = { DispatcherServletAutoConfiguration.class, TaskExecutionAutoConfiguration.class,ValidationAutoConfiguration.class })
+
+ebMvcAutoConfiguration自动配置类**加载顺序在以上自动配置类加载后加载
+
++ @ConditionalOnWebApplication(type = Type.SERVLET)
+   
+WebMvcAutoConfiguration自动配置类只在 servlet 环境中生效
+
++ @ConditionalOnClass({ Servlet.class, DispatcherServlet.class, WebMvcConfigurer.class })
+  
+类路径中必须存在 `Servlet.class`、`DispatcherServlet.class`、`WebMvcConfigurer.class`类，WebMvcAutoConfiguration 自动配置类才会生效
+
++ @ConditionalOnMissingBean(WebMvcConfigurationSupport.class)
+
+   - 类路径中不存在 `WebMvcConfigurationSupport.class` 时 WebMvcAutoConfiguration 自动配置类才会生效
+   - 注意：当使用 @EnableWebMvc 注解后，类路径中就会注册一个 WebMvcConfigurationSupport 这样的 bean，这会导致 Spring Boot 的 MVC 自动配置完全失效
+
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE})
+@Documented
+@Import({DelegatingWebMvcConfiguration.class})
+public @interface EnableWebMvc {
+}
+
+public class DelegatingWebMvcConfiguration extends WebMvcConfigurationSupport {
+}
+```
+
+但该容器中存在 EnableWebMvcConfiguration，且它继承 WebMvcConfigurationSupport，但并没有导致此自动配置类失效，因为 EnableWebMvcConfiguration 是内部类，
+在 WebMvcAutoConfiguration 进行加载的时候，EnableWebMvcConfiguration 这个内部类还没有加载，
+因此这个时候在容器中还不存在 WebMvcConfigurationSupport 的 Bean，所以 WebMvcAutoConfiguration 仍然会生效
+
+```java
+@EnableConfigurationProperties({WebProperties.class})
+ public static class EnableWebMvcConfiguration extends DelegatingWebMvcConfiguration implements ResourceLoaderAware {
+ }
+```
+
++ @AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE + 10) 不重要
+  
+指定 WebMvcAutoConfiguration 自动配置类的加载顺序
+
++ @ImportRuntimeHints(WebResourcesRuntimeHints.class) 不重要
+
+运行时引入 WebResourcesRuntimeHints 这个类，这个类的作用是给JVM或者其他组件提示信息的，提示一下系统应该如何处理类和资源
+
+总结来说，WebMvcAutoConfiguration 类在满足以下所有条件时生效：
+
+1. 应用程序是一个Servlet类型的Web应用
+2. 环境中有Servlet、DispatcherServlet和WebMvcConfigurer类
+3. 容器中没有WebMvcConfigurationSupport的bean
+
+****
+### 2.2 WebMvc 自动配置生效后引入的两个 Filter Bean
+
+HiddenHttpMethodFilter Bean：
+
+浏览器的 <form> 表单原生只支持 GET 和 POST 请求。但很多 RESTful 风格接口需要使用 PUT、DELETE、PATCH 等方法。
+Spring 提供了 HiddenHttpMethodFilter 来“伪装”这些请求，效果与配置 xml 文件一样，
+但默认是不启用的，需要在配置文件中设置启用：`spring.mvc.hiddenmethod.filter.enabled=true`
+
+```java
+    @Bean
+    @ConditionalOnMissingBean({HiddenHttpMethodFilter.class})
+    @ConditionalOnProperty(prefix = "spring.mvc.hiddenmethod.filter", name = {"enabled"})
+    public OrderedHiddenHttpMethodFilter hiddenHttpMethodFilter() {
+        return new OrderedHiddenHttpMethodFilter();
+    }
+```
+
+```html
+<form method="POST" action="/users/1">
+    <input type="hidden" name="_method" value="DELETE">
+    <button type="submit">Delete</button>
+</form>
+
+```
+
+FormContentFilter Bean：
+
+默认情况下，Servlet 规范只会对 POST + 表单格式自动解析参数，PUT 和 DELETE 请求不会自动解析 request body 中的表单数据，该过滤器就可以解析，
+并注入到 @RequestParam、@RequestBody、HttpServletRequest.getParameter()，默认自动开启，也可禁用：`spring.mvc.formcontent.filter.enabled=false`
+
+```java
+    @Bean
+    @ConditionalOnMissingBean({FormContentFilter.class})
+    @ConditionalOnProperty(prefix = "spring.mvc.formcontent.filter", name = {"enabled"}, matchIfMissing = true)
+    public OrderedFormContentFilter formContentFilter() {
+        return new OrderedFormContentFilter();
+    }
+```
+
+****
+### 2.3 WebMvc 自动配置生效后引入的 WebMvcConfigurer 接口的实现类
+
+```java
+ @Configuration(proxyBeanMethods = false)
+ @Import({EnableWebMvcConfiguration.class})
+ @EnableConfigurationProperties({WebMvcProperties.class, WebProperties.class})
+ @Order(0)
+ public static class WebMvcAutoConfigurationAdapter implements WebMvcConfigurer, ServletContextAware {
+ }
+```
+
+SpringBoot 通过实现 Spring MVC 的 WebMvcConfigurer 接口在 `WebMvcAutoConfigurationAdapter` 中进行了一系列的 Spring MVC 相关配置，如果后续需要对Spring MVC的相关配置进行修改，
+就可以编写一个类继承 WebMvcConfigurer，然后重写对应的方法，以此达到修改与扩展的目的。
+
+在 WebMvcConfigurer 接口中提供了很多方法，需要改变 Spring MVC 的哪个行为，则重写对应的方法即可：
+
+```java
+public interface WebMvcConfigurer {
+    // 配置请求路径的匹配规则，比如是否后缀匹配、是否大小写敏感、是否保留尾部 /
+   default void configurePathMatch(PathMatchConfigurer configurer) {}
+    // 控制返回 JSON/XML/HTML 等数据格式的优先级策略
+   default void configureContentNegotiation(ContentNegotiationConfigurer configurer) {}
+    // 设置异步请求的超时、线程池、自定义拦截器等
+   default void configureAsyncSupport(AsyncSupportConfigurer configurer) {} 
+   // 配置静态资源是否交由容器默认 Servlet 处理（如 Tomcat 的 DefaultServlet）
+   default void configureDefaultServletHandling(DefaultServletHandlerConfigurer configurer) {}
+    // 注册自定义格式化器或类型转换器
+   default void addFormatters(FormatterRegistry registry) {}
+    // 注册 Spring MVC 拦截器（HandlerInterceptor）
+   default void addInterceptors(InterceptorRegistry registry) {}
+    // 自定义静态资源映射，如将 /img/** 映射到磁盘路径
+   default void addResourceHandlers(ResourceHandlerRegistry registry) {}
+    // 为不同路径设置跨域策略
+   default void addCorsMappings(CorsRegistry registry) {}
+    // 设置 URL → 视图名的直接映射（适合跳转首页、登录页等）
+   default void addViewControllers(ViewControllerRegistry registry) {}
+    // 自定义视图解析策略
+   default void configureViewResolvers(ViewResolverRegistry registry) {}
+    // 添加自定义参数解析器，用于 @Controller 方法参数扩展
+   default void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {}
+    // 添加自定义返回值处理器，用于增强控制器返回值处理能力
+   default void addReturnValueHandlers(List<HandlerMethodReturnValueHandler> handlers) {}
+    // 替换 Spring MVC 的消息转换器（如 JSON 处理用的 Jackson）
+   default void configureMessageConverters(List<HttpMessageConverter<?>> converters) {}
+    // 在默认消息转换器的基础上扩展
+   default void extendMessageConverters(List<HttpMessageConverter<?>> converters) {}
+    // 用于定制 Spring MVC 如何处理控制器方法中发生的异常，并提供相应的错误处理逻辑
+   default void configureHandlerExceptionResolvers(List<HandlerExceptionResolver> resolvers) {}
+    // 用于定制 Spring MVC 如何处理控制器方法中抛出的异常，允许添加额外的异常处理逻辑
+   default void extendHandlerExceptionResolvers(List<HandlerExceptionResolver> resolvers) {}
+}
+```
+
+因为 `WebMvcAutoConfigurationAdapter` 是 Spring Boot 框架提供的，这个类上又使用了  @EnableConfigurationProperties({WebMvcProperties.class, WebProperties.class}) 注解，
+证明有些默认属性是绑定在属性类上的，所以可以通过获取这两个属性类的前缀来进行修改，它们两个对应的前缀是：`spring.mvc` 和 `spring.mvc`
+
+****
+## 3. 自动配置中的静态资源处理
+
+web 中的静态资源指的是：js、css、图片等
+
+### 3.1 分析路径
+
+```java
+public void addResourceHandlers(ResourceHandlerRegistry registry) {
+    // isAddMappings 返回一个 addMappings，而它是 Resources 的一个属性，在对象的实例化时自动赋值为 true
+    // 检查 resourceProperties 中的 addMappings 属性是否为 false，如果为 false，则表示不启用默认的静态资源映射处理
+    // 在配置文件中进行 spring.web.resources.add-mappings=false 配置，可以将其设置为 false
+   if (!this.resourceProperties.isAddMappings()) {
+       logger.debug("Default resource handling disabled");
+   } else {
+      // 配置 WebJars 的静态资源处理
+      // this.mvcProperties.getWebjarsPathPattern()的执行结果是：/webjars/**
+      // 也就是说，如果请求路径是 http://localhost:8080/webjars/** ，则自动去类路径下的 /META-INF/resources/webjars/ 目录中找静态资源
+      // 但 webjars 相关资源的路径不能改变，因为它已经在代码中写死了
+      // 如果要改变这个默认的配置，需要在配置文件中文件中进行配置：spring.mvc.webjars-path-pattern=...
+       this.addResourceHandler(registry, this.mvcProperties.getWebjarsPathPattern(), "classpath:/META-INF/resources/webjars/");
+      // 配置普通静态资源处理
+      // this.mvcProperties.getStaticPathPattern() 的执行结果是：/**
+      // this.resourceProperties.getStaticLocations() 的执行结果是：{ "classpath:/META-INF/resources/","classpath:/resources/", "classpath:/static/", "classpath:/public/" }
+      // 也就是说，如果请求路径是：http://localhost:8080/**，根据控制器方法优先原则，会先去找合适的控制器方法，
+      // 如果没有合适的控制器方法，静态资源处理才会生效，则自动去类路径下的/META-INF/resources/、/resources/、/static/、/public/ 4个位置找
+      // 因为这两个路径都没有写死，所以都可以根据配置文件修改
+      // 如果要改变这个默认的配置，需要进行如下的两个配置：
+      //    配置URL：spring.mvc.static-path-pattern=...
+      //    配置物理路径：spring.web.resources.static-locations=...,...,...,...
+       this.addResourceHandler(registry, this.mvcProperties.getStaticPathPattern(), (registration) -> {
+           registration.addResourceLocations(this.resourceProperties.getStaticLocations());
+           if (this.servletContext != null) {
+               ServletContextResource resource = new ServletContextResource(this.servletContext, "/");
+               registration.addResourceLocations(new Resource[]{resource});
+           }
+       });
+   }
+}
+```
+
+****
+### 3.2 WebJars 静态资源处理
+
+WebJars 是一种将常用的前端库（如 jQuery、Bootstrap、Font Awesome 等）打包成 JAR 文件的形式，方便在 Java 应用程序中使用。
+WebJars 提供了一种标准化的方式来管理前端库，使其更容易集成到 Java 项目中，并且可以利用 Maven 的依赖管理功能。
+
+可以通过添加 webjars 的依赖测试一下：
+
+```xml
+<!--添加 Vue 的 webjars-->
+<dependency>
+    <groupId>org.webjars.npm</groupId>
+    <artifactId>vue</artifactId>
+    <version>3.5.12</version>
+</dependency>
+```
+
+默认规则是：当请求路径是 `/webjars/**`，则会去 `classpath:/META-INF/resources/webjars/` 找
+
+通过访问：http://localhost:8080/webjars/vue/3.5.12/index.js 可以获取到该 js 文件中的对应内容
+
+****
+### 3.3 普通静态资源处理
+
+当请求路径是 `http://localhost:8080/**` ，根据控制器方法优先原则，会先去找合适的控制器方法，如果没有合适的控制器方法，静态资源处理才会生效，则自动去类路径下的以下4个位置查找：
+
++ classpath:/META-INF/resources/
++ classpath:/resources/
++ classpath:/static/
++ classpath:/public/ 
+
+### 3.4 静态资源缓存处理
+
+不管是 webjars 的静态资源还是普通静态资源，统一都会执行 addResourceHandler 方法，这个方法最后几行代码就是关于静态资源的缓存处理方式
+
+```java
+private void addResourceHandler(ResourceHandlerRegistry registry, String pattern, Consumer<ResourceHandlerRegistration> customizer) {
+   if (!registry.hasMappingForPattern(pattern)) {
+       ResourceHandlerRegistration registration = registry.addResourceHandler(new String[]{pattern});
+       customizer.accept(registration);
+       // 以下三个方法都绑定了配置属性类，所以可以通过配置文件的方式进行配置相关信息
+       // 设置缓存过期时间
+       registration.setCachePeriod(this.getSeconds(this.resourceProperties.getCache().getPeriod()));
+       // 设置详细的缓存控制，也同样可以设置缓存时间
+       registration.setCacheControl(this.resourceProperties.getCache().getCachecontrol().toHttpCacheControl());
+       // 启用 Last-Modified 响应头支持，即最后修改时间的比对
+       registration.setUseLastModified(this.resourceProperties.getCache().isUseLastModified());
+       this.customizeResourceHandlerRegistration(registration);
+   }
+}
+```
+
+registration.setCachePeriod(getSeconds(this.resourceProperties.getCache().getPeriod()));
+
+- 设置缓存的过期时间（如果没有指定单位，默认单位是秒）
+- 浏览器会根据响应头中的缓存控制信息决定是否从本地缓存中加载资源，而不是每次都从服务器重新请求，假设配置了静态资源缓存过期时间为 1 小时（3600 秒），那么浏览器在首次请求某个静态资源后，会在接下来的一小时内从本地缓存加载该资源，而不是重新请求服务器
+- 可以通过`application.properties`的来修改默认的过期时间，例如：spring.web.resources.cache.period=3600 或者 spring.web.resources.cache.period=1h
+
+registration.setCacheControl(this.resourceProperties.getCache().getCacheControl().toHttpCacheControl());
+
+- 设置静态资源的 Cache-Control HTTP 响应头，告诉浏览器如何去缓存这些资源
+- 常见的 Cache-Control 指令包括：
+
+```text
+max-age= ：表示响应在多少秒内有效
+public：表示响应可以被任何缓存机制（如代理服务器）缓存
+private：表示响应只能被用户的浏览器缓存
+no-cache：表示在使用缓存的资源之前必须重新发送一次请求进行验证
+no-store：表示不缓存任何响应的资源
+例如：max-age=3600, public：表示响应在 3600 秒内有效，并且可以被任何缓存机制缓存
+可以通过`spring.web.resources.cache.cachecontrol.max-age=3600`以及`spring.web.resources.cache.cachecontrol.cache-public=true`进行重新配置
+```
+
+registration.setUseLastModified(this.resourceProperties.getCache().isUseLastModified());
+
+- 设置静态资源在响应时，是否在响应头中添加资源的最后一次修改时间，SpringBoot 默认配置的是：在响应头中添加响应资源的最后一次修改时间
+- 浏览器发送请求时，会将缓存中的资源的最后修改时间和服务器端资源的最后一次修改时间进行比对，如果没有变化，服务端判断资源没更新，就返回 304 Not Modified，仍然从缓存中获取
+- 可以通过 `spring.web.resources.cache.use-last-modified=false` 来关闭配置（默认为 true）
+
+****
+### 3.5 web 应用的欢迎页面
+
+在四个静态资源路径下都创建 index.html，启动项目，最终访问的首页是 classpath:/META_INF/resources，因为它是数组的首个元素
+
+```java
+CLASSPATH_RESOURCE_LOCATIONS = new String[]{"classpath:/META-INF/resources/", "classpath:/resources/", "classpath:/static/", "classpath:/public/"}
+```
+
+在 WebMvcAutoConfiguration 类中有一个内部类 EnableWebMvcConfiguration，这个类中有这样一段代码：
+
+```java
+@Bean
+public WelcomePageHandlerMapping welcomePageHandlerMapping(ApplicationContext applicationContext, FormattingConversionService mvcConversionService, ResourceUrlProvider mvcResourceUrlProvider) {
+    // 创建一个 WelcomePageHandlerMapping 实例，用来将 / 请求映射到 index.html 页面
+    return (WelcomePageHandlerMapping)this.createWelcomePageHandlerMapping(applicationContext, mvcConversionService, mvcResourceUrlProvider, WelcomePageHandlerMapping::new);
+}
+
+private <T extends AbstractUrlHandlerMapping> T createWelcomePageHandlerMapping(ApplicationContext applicationContext, FormattingConversionService mvcConversionService, ResourceUrlProvider mvcResourceUrlProvider, WelcomePageHandlerMappingFactory<T> factory) {
+   TemplateAvailabilityProviders templateAvailabilityProviders = new TemplateAvailabilityProviders(applicationContext);
+   // 获取静态 url，默认为 spring.mvc.static-path-pattern=/static/**
+   String staticPathPattern = this.mvcProperties.getStaticPathPattern();
+   T handlerMapping = factory.create(templateAvailabilityProviders, applicationContext, this.getIndexHtmlResource(), staticPathPattern);
+   handlerMapping.setInterceptors(this.getInterceptors(mvcConversionService, mvcResourceUrlProvider));
+   handlerMapping.setCorsConfigurations(this.getCorsConfigurations());
+   return handlerMapping;
+}
+
+private Resource getIndexHtmlResource() {
+   // 获取静态资源路径数组
+   String[] var1 = this.resourceProperties.getStaticLocations();
+   int var2 = var1.length;
+   // 遍历所有路径
+   for(int var3 = 0; var3 < var2; ++var3) {
+      String location = var1[var3];
+      // 这里就是尝试每个路径都访问 location + "index.html"
+      Resource indexHtml = this.getIndexHtmlResource(location);
+      if (indexHtml != null) {
+         return indexHtml;
+      }
+   }
+   ServletContext servletContext = this.getServletContext();
+   if (servletContext != null) {
+      return this.getIndexHtmlResource((Resource)(new ServletContextResource(servletContext, "/")));
+   } else {
+      return null;
+   }
+}
+
+// 使用 ResourceLoader 将字符串路径（如 "classpath:/static/"）变成 Resource 对象
+private Resource getIndexHtmlResource(String location) {
+   return this.getIndexHtmlResource(this.resourceLoader.getResource(location));
+}
+
+// 
+private Resource getIndexHtmlResource(Resource location) {
+   try {
+      // 获取到 index.html 文件，封装成 Resource 对象
+      Resource resource = location.createRelative("index.html");
+      if (resource.exists() && resource.getURL() != null) {
+         return resource;
+      }
+   } catch (Exception var3) {
+   }
+   // 如果没找到就返回空
+   return null;
+}
+```
+
+所以，只要请求路径是 `/**` 的，会依次去 `{ "classpath:/META-INF/resources/", "classpath:/resources/", "classpath:/static/", "classpath:/public/" }` 这四个位置找 `index.html` 页面作为欢迎页
+
+**favorite icon**：
+
+favicon（也称为“收藏夹图标”或“网站图标”）是大多数现代网页浏览器的默认行为之一，当用户访问一个网站时，
+浏览器通常会尝试从该网站的根目录下载名为 favicon.ico 的文件，并将其用作标签页的图标。
+
+如果网站没有提供 favicon.ico 文件，浏览器可能会显示一个默认图标，或者根本不显示任何图标。
+为了确保良好的用户体验，网站开发者通常会在网站的根目录下放置一个 favicon.ico 文件。
+
+****
+## 4. web 的手动配置（静态资源处理）
+
+
+
 
 
 
