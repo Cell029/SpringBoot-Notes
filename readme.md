@@ -2720,7 +2720,177 @@ spring.devtools.restart.enabled=false
 ****
 ## 8. 异常处理
 
+在 controller 层如果程序出现了异常，并且这个异常未被捕获，springboot 提供的异常处理机制将生效。Spring Boot 提供异常处理机制主要是为了提高应用的健壮性和用户体验。它的好处包括：
 
+1. **统一错误响应**：可以定义全局异常处理器来统一处理各种异常，确保返回给客户端的错误信息格式一致，便于前端解析。
+2. **提升用户体验**：能够优雅地处理异常情况，避免直接将技术性错误信息暴露给用户，而是显示更加友好的提示信息。
+3. **简化代码**：开发者不需要在每个可能抛出异常的方法中重复编写异常处理逻辑，减少冗余代码，使业务代码更加清晰简洁。
+4. **增强安全性**：通过控制异常信息的输出，防止敏感信息泄露，增加系统的安全性。
+5. **自适应的错误处理机制**：springboot 会根据请求头的 Accept 字段来决定错误的响应格式，这种机制的好处就是客户端设备自适应，可以提高用户的体验。
+
+### 1. SpringMVC 的错误处理方案
+
+如果使用了 SpringMVC 的错误处理方案，SpringBoot 的错误处理方案就不生效。
+
+- 局部控制 @ExceptionHandler
+
+在控制器当中编写一个方法并使用 @ExceptionHandler 注解进行标注，凡是这个控制器当中出现了对应的异常，则走这个方法来进行异常的处理，局部生效，其他控制器中发生异常不会执行以下内容。
+
+```java
+@ExceptionHandler(IllegalArgumentException.class)
+public String handler(IllegalArgumentException e){
+  return "错误信息：" + e.getMessage();
+}
+```
+
+- 全局控制 @ControllerAdvice + @ExceptionHandler
+
+也可以把以上局部生效的方法单独放到一个类当中，这个类使用 @ControllerAdvice 注解标注，任何控制器当中出现了对应的异常，则都走这个方法来进行异常的处理，全局生效。
+
+```java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+   @ExceptionHandler(IllegalArgumentException.class)
+   @ResponseBody
+   public String handler(IllegalArgumentException e){
+      return "错误信息：" + e.getMessage();
+   }
+}
+```
+
+****
+### 2. SpringBoot 的错误处理方案
+
+如果 SpringMVC 没有对应的处理方案，会开启 SpringBoot 默认的错误处理方案，SpringBoot 默认的错误处理方案如下：
+
+1. 如果客户端要的是json，则直接响应json格式的错误信息。
+2. 如果客户端要的是html页面，则按照下面方案：
+
+   + 第一步（精确错误码文件）：去`classpath:/templates/error/`目录下找`404.html`、`500.html`等 `精确错误码.html` 文件；如果找不到，则去静态资源目录下的/error目录下找；如果还是找不到，才会进入下一步。
+   + 第二步（模糊错误码文件）：去`classpath:/templates/error/`目录下找`4xx.html`、`5xx.html`等 `模糊错误码.html` 文件；如果找不到，则去静态资源目录下的/error目录下找；如果还是找不到，才会进入下一步。
+   + 第三步（通用错误页面）：去找`classpath:/templates/error.html`如果找不到则进入下一步。
+   + 第四步（默认错误处理）：如果上述所有步骤都未能找到合适的错误页面，Spring Boot 会使用内置的默认错误处理机制，即 `/error` 端点。
+
+****
+### 3. 在错误页面获取错误信息
+
+Spring Boot 默认会在模型 Model 中放置以下信息：
+
++ timestamp: 错误发生的时间戳
++ status: HTTP 状态码
++ error: 错误类型（如 "Not Found"）
++ exception: 异常类名
++ message: 错误消息
++ trace: 堆栈跟踪
++ path: 触发错误的请求路径
+
+注意：springboot 默认未绑定 `exception``message``trace`，若想获取则需要开启以下三个配置（高版本可能会默认绑定）：
+
+```properties
+server.error.include-stacktrace=always
+server.error.include-exception=true
+server.error.include-message=always
+```
+
+****
+## 9. 国际化
+
+在 Spring Boot 中实现国际化（i18n）是一个常见的需求，它允许应用程序根据用户的语言和地区偏好显示不同的文本。
+
+### 1. 实现国际化
+
+第一步：创建资源文件
+
+创建包含不同语言版本的消息文件，这些文件通常放在`src/main/resources`目录下，并且以`.properties`为扩展名。例如：
+
++ `messages.properties` (默认语言，如英语)
++ `messages_zh_CN.properties` (简体中文)
++ `messages_fr.properties` (法语)
+
+第二步：在模板文件中取出消息，语法格式为：`#{welcome.message}`
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<h1 th:text="#{welcome.message}"></h1>
+</body>
+</html>
+```
+
+****
+## 10. 定制 web 容器
+
+### 1. web 服务器切换为 jetty
+
+修改 `pom.xml` 文件：在 `pom.xml` 中，确保使用 `spring-boot-starter-web` 并排除 Tomcat，然后添加 Jetty 依赖
+
+```xml
+<!-- 排除 Tomcat -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <exclusions>
+        <exclusion>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+<!-- 添加 Jetty 依赖 -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-jetty</artifactId>
+</dependency>
+```
+
+****
+### 2. web 服务器优化
+
+```properties
+# 这个参数决定了 Tomcat 在接收请求时，如果在指定的时间内没有收到完整的请求数据，将会关闭连接。这个超时时间是从客户端发送请求开始计算的。
+# 防止长时间占用资源：如果客户端发送请求后，长时间没有发送完所有数据，Tomcat 会在这个超时时间内关闭连接，从而释放资源，避免资源被长时间占用。
+server.tomcat.connection-timeout=20000
+
+# 设置 Tomcat 服务器处理请求的最大线程数为 200。
+# 如果超过这个数量的请求同时到达，Tomcat 会将多余的请求放入一个等待队列中。
+# 如果等待队列也满了（由 server.tomcat.accept-count 配置），新的请求将被拒绝，通常会返回一个“503 Service Unavailable”错误。
+server.tomcat.max-threads=200
+
+# 用来设置等待队列的最大容量
+server.tomcat.accept-count=100
+
+# 设置 Tomcat 服务器在空闲时至少保持 10 个线程处于活动状态，以便快速响应新的请求。
+server.tomcat.min-spare-threads=10
+
+# 允许 Tomcat 服务器在关闭后立即重新绑定相同的地址和端口，即使该端口还在 TIME_WAIT 状态
+# 当一个网络连接关闭时，操作系统会将该连接的端口保持在 TIME_WAIT 状态一段时间（通常是 2-4 分钟），以确保所有未完成的数据包都能被正确处理。在这段时间内，该端口不能被其他进程绑定。
+server.tomcat.address-reuse-enabled=true
+
+# 设置 Tomcat 服务器绑定到所有可用的网络接口，使其可以从任何网络地址访问。
+server.tomcat.bind-address=0.0.0.0
+
+# 设置 Tomcat 服务器使用 HTTP/1.1 协议处理请求。
+server.tomcat.protocol=HTTP/1.1
+
+# 设置 Tomcat 服务器的会话(session)超时时间为 30 分钟。具体来说，如果用户在 30 分钟内没有与应用进行任何交互，其会话将被自动注销。
+server.tomcat.session-timeout=30
+
+# 设置 Tomcat 服务器的静态资源缓存时间为 3600 秒（即 1 小时），这意味着浏览器会在 1 小时内缓存这些静态资源，减少重复请求。
+server.tomcat.resource-cache-period=3600
+
+# 解决get请求乱码。对请求行url进行编码。
+server.tomcat.uri-encoding=UTF-8
+
+# 设置 Tomcat 服务器的基础目录为当前工作目录（. 表示当前目录）。这个配置指定了 Tomcat 服务器的工作目录，包括日志文件、临时文件和其他运行时生成的文件的存放位置。 生产环境中可能需要重新配置。
+server.tomcat.basedir=.
+```
+
+****
 
 
 

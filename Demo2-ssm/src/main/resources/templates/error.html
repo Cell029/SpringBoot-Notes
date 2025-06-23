@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>通用错误</title>
+</head>
+<body>
+<h1>通用错误信息：</h1>
+
+<p><strong>时间：</strong> <span th:text="${timestamp}"></span></p>
+<p><strong>状态码：</strong> <span th:text="${status}"></span></p>
+<p><strong>错误类型：</strong> <span th:text="${error}"></span></p>
+<p><strong>请求路径：</strong> <span th:text="${path}"></span></p>
+<p><strong>错误消息：</strong> <span th:text="${message}"></span></p>
+
+<!-- 异常类名 -->
+<p th:if="${exception}">
+    <strong>异常类：</strong> <span th:text="${exception}"></span>
+</p>
+
+<!-- 堆栈信息，trace 参数控制 -->
+<div th:if="${trace}">
+    <strong>堆栈信息：</strong>
+    <pre th:text="${trace}"></pre>
+</div>
+
+<hr>
+<p>请联系技术支持，或稍后再试。</p>
+</body>
+</html>
