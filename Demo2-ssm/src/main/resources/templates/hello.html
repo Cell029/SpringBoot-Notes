@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="UTF-8">
+    <title>hello, thymeleaf</title>
+</head>
+<body>
+<h1>hello,<span th:text="${name}"></span></h1>
+
+<div th:text="${name}">我是一个DIV</div>
+
+<div th:utext="${htmlCode}">我是一个DIV</div>
+
+<img src="2.jpg" th:if="true">
+<img src="1.jpg" th:if="false">
+<img th:src="${imgUrl}">
+<img th:src="@{${imgUrl}}">
+
+<!--如果name中包含jack就显示图片-->
+<img th:src="@{${imgUrl}}" th:if="${#strings.contains(name,'jack')}">
+</body>
+</html>

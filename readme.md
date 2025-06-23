@@ -2190,7 +2190,535 @@ spring.mvc.contentnegotiation.parameter-name=type
 ```
 
 ****
+### 6.2 HttpMessageConverter 接口
 
+#### 1. 常见的消息转换器
+
+内置的常见的 HttpMessageConverter 的实现类包括：
+
++ 【请求】提交的表单（form）数据转换成Java对象的主要任务是由 FormHttpMessageConverter 消息转换器完成的
++ 【请求】提交的 JSON 数据转换成 Java 对象的主要任务是由 MappingJackson2HttpMessageConverter 消息转换器完成的（通常使用 @RequestBody 注解）
++ 【响应】将 Java 对象转换成 JSON 格式的数据，并将其写入 HTTP 响应体的任务是由 MappingJackson2HttpMessageConverter 消息转换器完成（通常使用 @ResponseBody 注解)
++ 【响应】将 Java 对象转换成 XML 格式的数据，并将其写入 HTTP 响应体的任务通常由 Jaxb2RootElementHttpMessageConverter 消息转换器完成
++ 【响应】将 String 直接写入到响应体的任务是由 StringHttpMessageConverter 消息转换器完成
+
+响应时通常根据以下条件来确定使用哪个消息转换器：
+
+1. 请求提交时，请求头上的 Accept 字段 ：
+
+Spring MVC 会检查客户端请求的 Accept 字段，以确定客户端期望的响应格式（例如 application/json、application/xml 等）
+
+2. 方法返回值类型：
+
+控制器方法的返回值类型（例如 @ResponseBody）
+
+例如1：@ResponseBody + 控制器方法的返回值是 String，则使用 StringHttpMessageConverter 转换器（将字符串直接写入响应体）
+
+例如2：@ResponseBody + 控制器方法的返回值是 User，则使用 MappingJackson2HttpMessageConverter 转换器（将 java 对象转换成 json 格式的字符串写入到响应体）
+
+#### 2. 系统默认提供的消息转换器
+
+1. **ByteArrayHttpMessageConverter:**
+
+用于将字节数组(byte[])与HTTP消息体之间进行转换。这通常用于处理二进制数据，如图片或文件。
+
+2. **StringHttpMessageConverter:**
+
+用于将字符串(String)与HTTP消息体之间进行转换。它支持多种字符集编码，能够处理纯文本内容。
+
+3. **ResourceHttpMessageConverter:**
+
+用于将Spring的Resource对象与HTTP消息体之间进行转换。Resource是Spring中表示资源的接口，可以读取文件等资源。这个转换器对于下载文件或发送静态资源有用。
+
+4. **ResourceRegionHttpMessageConverter:**
+
+用于处理资源的部分内容（即“Range”请求），特别是当客户端请求大文件的一部分时。这对于实现视频流媒体等功能很有用。
+
+5. **AllEncompassingFormHttpMessageConverter:**
+
+用于处理表单，是一个比较全面的form消息转换器。处理标准的application/x-www-form-urlencoded格式的数据，以及包含文件上传的multipart/form-data格式的数据。
+
+6. **MappingJackson2HttpMessageConverter:**
+
+使用Jackson库来序列化和反序列化JSON数据，可以将Java对象转换为JSON格式的字符串，反之亦然。
+
+****
+#### 3. 自定义消息转换器
+
+因为默认的转换器中没有处理 yaml 格式的，所以可以通过自定一个转换器来实现：
+
+第一步：引入能够处理 yaml 格式的依赖
+
+```xml
+<dependency>
+  <groupId>com.fasterxml.jackson.dataformat</groupId>
+  <artifactId>jackson-dataformat-yaml</artifactId>
+</dependency>
+```
+
+第二步：新增一种媒体类型 yaml
+
+springboot 默认支持 xml 和 json 两种媒体类型，要支持 yaml 格式就需要新增一个 yaml 媒体类型，在 springboot 的配置文件中进行配置：spring.mvc.contentnegotiation.media-types.yaml=text/yaml。
+注意，以上 `types` 后面的 `yaml` 是媒体类型的名字，名字随意，如果媒体类型起名为`xyz`，那么发送请求时的路径应该是这样的：http://localhost:8080/detail?format=xyz
+
+第三步：自定义 HttpMessageConverter
+
+编写类 [YamlHttpMessageConverter](./Demo2-ssm/src/main/java/com/cell/web/config/YamlHttpMessageConverter.java) 继承 AbstractHttpMessageConverter：
+
+```java
+
+```
+
+第四步：配置消息转换器
+
+重写 WebMvcConfigurer 接口的 configureMessageConverters 方法：
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void configureMessageConverters(List<HttpMessageConverter<?>> converters) {
+        converters.add(new YamlHttpMessageConverter());
+    }
+}
+```
+
+第五步：黑窗口输入：curl -H "Accept: text/yaml" http://localhost:8080/detail
+
+```yaml
+username: "jack"
+age: 30
+```
+
+****
+## 7. SpringBoot 整合 Thymeleaf
+
+### 7.1 传统 web 应用和前后端分离 
+
+现代开发大部分应用都会采用前后端分离的方式进行开发，前端是一个独立的系统，后端也是一个独立的系统，后端系统只给前端系统提供数据（JSON数据），不需要后端解析模板页面，
+前端系统拿到后端提供的数据之后，前端负责填充数据即可
+
+传统的 WEB 应用（非前后端分离）：浏览器页面上展示成什么效果，后端服务器说了算，这是传统 web 应用最大的特点。
+
+前后端分离的应用：前端是一个独立的系统，后端也是一个独立的系统，后端系统不再负责页面的渲染，后端系统只负责给前端系统提供开放的API接口，后端系统只负责数据的收集，
+然后将数据以 JSON/XML 等格式响应给前端系统，前端系统拿到接口返回的数据后，将数据填充到页面上。
+
+前后端分离的好处：
+
++ 职责清晰：前端专注于用户界面和用户体验，后端专注于业务逻辑和数据处理。
++ 开发效率高：前后端可以并行开发，互不影响，提高开发速度。
++ 可维护性强：代码结构更清晰，便于维护和扩展。
++ 技术栈灵活：前后端可以独立选择最适合的技术栈。
++ 响应式设计：前端可以更好地处理不同设备和屏幕尺寸。
++ 性能优化：前后端可以独立优化，提升整体性能。
++ 易于测试：前后端接口明确，便于单元测试和集成测试。
+
+****
+### 7.2 SpringBoot 支持的模板
+
+1. **Thymeleaf**：
+   - **特点**：Thymeleaf 是一个现代的服务器端Java模板引擎，它支持HTML5，XML，TEXT，JAVASCRIPT，CSS等多种模板类型。它能够在浏览器中预览，这使得前端开发更加便捷。Thymeleaf 提供了一套强大的表达式语言，可以轻松地处理数据绑定、条件判断、循环等。
+   - **优势**：与Spring框架集成良好，也是SpringBoot官方推荐的
+2. **FreeMarker**：
+   - **特点**：FreeMarker 是一个用Java编写的模板引擎，主要用来生成文本输出，如HTML网页、邮件、配置文件等。它不依赖于Servlet容器，可以在任何环境中运行。
+   - **优势**：模板语法丰富，灵活性高，支持宏和函数定义，非常适合需要大量定制化的项目。
+3. **Velocity**：
+   - **特点**：Velocity 是另一个强大的模板引擎，最初设计用于与Java一起工作，但也可以与其他技术结合使用。它提供了简洁的模板语言，易于学习和使用。
+   - **优势**：轻量级，性能优秀，特别适合需要快速生成静态内容的应用。
+4. **Mustache**：
+   - **特点**：Mustache 是一种逻辑无感知的模板语言，可以用于多种编程语言，包括Java。它的设计理念是让模板保持简单，避免模板中出现复杂的逻辑。
+   - **优势**：逻辑无感知，确保模板的简洁性和可维护性，易于与前后端开发人员协作。
+5. **Groovy Templates**：
+   - **特点**：Groovy 是一种基于JVM的动态语言，它可以作为模板引擎使用。Groovy Templates 提供了非常灵活的模板编写方式，可以直接嵌入Groovy代码。
+   - **优势**：对于熟悉Groovy语言的开发者来说，使用起来非常方便，可以快速实现复杂逻辑。
+
+这些模板技术各有千秋，选择哪一种取决于项目的具体需求和个人偏好。Spring Boot 对这些模板引擎都提供了良好的支持，通常只需要在项目中添加相应的依赖，然后按照官方文档配置即可开始使用。
+
+****
+### 7.3 整合 Thymeleaf
+
+SpringBoot内嵌了Servlet容器（例如：Tomcat、Jetty等），使用SpringBoot不太适合使用JSP模板技术，因为SpringBoot项目最终打成jar包之后，放在jar包中的jsp文件不能被Servlet容器解析。
+所以更推荐使用Thymeleaf
+
+第一步：引入thymeleaf启动器
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-thymeleaf</artifactId>
+</dependency>
+```
+
+第二步：编写配置文件，指定前后缀（以下配置也是默认的配置）
+
+```properties
+spring.thymeleaf.prefix=classpath:/templates/
+spring.thymeleaf.suffix=.html
+```
+
+然后设置控制器和前端页面
+
+****
+### 7.4 Thymeleaf 核心语法
+
+注意：在根标签 `<html>` 中引入 `xmlns:th="http://www.thymeleaf.org"`，在编写 `th:` 语法时有智能提示，
+
+- th:text 替换标签体内容
+
+```html
+<div th:text="${name}">我是一个DIV</div>
+```
+
+标签体中的内容即使是一段HTML代码，也只是会被当做普通文本对待，然后被 th:text 中的内容替换掉，所以实际显示是：request 域中名为 name 的内容
+
+- th:utext 替换标签体内容
+
+作用和 `th:text` 一样，只不过 `th:utext` 会将内容当做一段 HTML 代码解析并替换
+
+```html
+<div th:utext="${htmlCode}">我是一个DIV</div>
+```
+
+- th:任意属性名 动态替换该属性的值
+
+```java
+// 向域中存储一个html标签的某个属性的值
+model.addAttribute("company", "哈哈");
+model.addAttribute("hrefValue", "http://www.baidu.com");
+```
+
+```html
+<a th:href="${hrefValue}" href="https://www.baidu.com" th:text="${company}">百度</a>
+```
+
+最终显示结果是：哈哈（百度链接）
+
+- th:attr 属性合并设置
+
+分开设置：
+
+```java
+model.addAttribute("hrefValue", "http://www.baidu.com");
+model.addAttribute("style", "color:red");
+```
+
+```html
+<a th:href="${hrefValue}" th:style="${style}">哈哈</a>
+```
+
+最终显示结果是：哈哈（红色字体的百度链接）
+
+合并设置，使用 th:attr：
+
+```java
+model.addAttribute("hrefValue", "http://www.baidu.com");
+model.addAttribute("style", "color:red");
+```
+
+```html
+<a th:attr="href=${hrefValue},style=${style}">哈哈</a>
+```
+
+最终显示结果是：哈哈（红色字体的百度链接）
+
+- th:指令
+
+指令非常多，具有代表性的例如：`th:if`，该指令用来控制元素隐藏和显示。
+
+```html
+<!--会渲染在页面-->
+<img src="1.jpg" th:if="true">
+<!--不会渲染在页面-->
+<img src="2.jpg" th:if="false">
+```
+
+- @{} 表达式
+
+`${}`表达式语法是专门用来获取`model`中绑定的数据的；`@{}`表达式语法是专门用来维护URL请求路径的，它可以动态设置项目的根路径。SpringBoot中默认的项目根路径是：`/`，编写这样的模板代码：
+
+```java
+model.addAttribute("imgUrl", "/1.jpg");
+```
+
+```html
+<img th:src="${imgUrl}">
+```
+
+此时是可以正常显示的，但如果将web应用的根路径进行了修改，将其配置为 `/myweb`：server.servlet.context-path=/myweb，此时就无法访问到该图片了，但使用 @{} 后：
+
+```html
+<img th:src="@{${imgUrl}}">
+```
+
+图片可以正常显示
+
+****
+#### Thymeleaf 的内置工具
+
+内置工具很多，可以参考官方文档：[https://www.thymeleaf.org/doc/tutorials/3.1/usingthymeleaf.html#strings](https://www.thymeleaf.org/doc/tutorials/3.1/usingthymeleaf.html#strings)
+
+例如：
+
+```html
+<!--如果name中包含jack就显示图片-->
+<img th:src="@{${imgUrl}}" th:if="${#strings.contains(name,'jack')}">
+```
+
+****
+#### Thymeleaf 的运算符和字符串拼接
+
+当用户名长度大于 6 时才显示图片
+
+```html
+<img th:src="@{${imgUrl}}" th:if="${#strings.length(name) > 6}">
+```
+
+```html
+<span th:text="${user.gender ? '男' : '女'}"></span>
+```
+
+字符串拼接：用 `''` 包裹的被视为字符串
+
+- 使用 `+`
+
+```html
+<div th:text="${'姓名：' + name + '，年龄：18'}"></div>
+```
+
+- 使用 `||`
+
+```html
+<div th:text="|姓名：${name}，年龄：18|"></div>
+```
+
+****
+#### 循环遍历
+
+```html
+<tr th:each="user : ${users}">
+  <td th:text="${user.name}"></td>
+  <td th:text="${user.age}"></td>
+  <td th:text="${user.gender}"></td>
+  <td th:text="${user.desc}"></td>
+  <td th:text="${user.location}"></td>
+</tr>
+```
+
++ ${users}：代表集合
++ user：代表集合中的每个元素
++ ${user.name}：元素的name属性值
+
+遍历时也可以添加状态对象：
+
+```html
+<tr th:each="user,state : ${userList}">
+    <td th:text="${state.count}">1</td>
+    <td th:text="${user.name}">张三</td>
+    <td th:text="${user.age}">20</td>
+    <td th:text="${user.gender}"></td>
+    <td th:text="${user.desc}"></td>
+    <td th:text="${user.location}"></td>
+    <td>
+        thymeleaf的内联表达式：<br>
+        下标：[[${state.index}]]<br>
+        序号：[[${state.count}]]<br>
+        当前对象：[[${state.current}]]<br>
+        元素总数：[[${state.size}]]<br>
+        是否为偶数行：[[${state.even}]]<br>
+        是否为奇数行：[[${state.odd}]]<br>
+        是否第一个元素：[[${state.first}]]<br>
+        是否最后一个元素：[[${state.last}]]<br>
+    </td>
+</tr>
+```
+
+另外，状态对象 `state` 的属性包括：
+
++ index：下标
++ count：序号
++ current：当前对象
++ size：元素总数
++ even：是否为偶数行
++ odd：是否为奇数行
++ first：是否为第一个元素
++ last：是否为最后一个元素
+
+****
+#### 条件判断
+
+- th:if
+
+```html
+<td th:if="${#strings.isEmpty(user.desc)}" th:text="'你比较懒没有留下任何介绍信息'"></td>
+<td th:if="${not #strings.isEmpty(user.desc)}" th:text="${user.desc}"></td>
+```
+
+- th:switch
+
+如果城市编号001则显示北京，002则显示上海，003则显示广州，004则显示深圳，其他值显示未知
+
+```html
+<td th:switch="${user.location}">
+  <span th:case="001">北京</span>
+  <span th:case="002">上海</span>
+  <span th:case="003">广州</span>
+  <span th:case="004">深圳</span>
+  <span th:case="*">未知</span>
+</td>
+```
+
+****
+#### Thymeleaf 的属性优先级
+
+以下是 Thymeleaf 属性的优先级从高到低的列表：
+
+| 优先级 | 属性             | 描述                               |
+| ------ | ---------------- | ---------------------------------- |
+| 1      | `th:if`          | 如果条件为真，则渲染该元素。       |
+| 2      | `th:unless`      | 如果条件为假，则渲染该元素。       |
+| 3      | `th:with`        | 定义局部变量。                     |
+| 4      | `th:switch`      | 开始一个 switch 语句。             |
+| 5      | `th:case`        | 定义 switch 语句中的 case 分支。   |
+| 6      | `th:each`        | 遍历列表，用于循环。               |
+| 7      | `th:remove`      | 移除元素或其属性。                 |
+| 8      | `th:attr`        | 设置或修改元素的属性。             |
+| 9      | `th:classappend` | 追加 CSS 类。                      |
+| 10     | `th:styleappend` | 追加内联样式。                     |
+| 11     | `th:src`         | 设置元素的 `src` 属性。            |
+| 12     | `th:href`        | 设置元素的 `href` 属性。           |
+| 13     | `th:value`       | 设置元素的 `value` 属性。          |
+| 14     | `th:text`        | 设置元素的文本内容。               |
+| 15     | `th:utext`       | 设置元素的未转义文本内容。         |
+| 16     | `th:html`        | 设置元素的 HTML 内容。             |
+| 17     | `th:fragment`    | 定义模板片段。                     |
+| 18     | `th:insert`      | 插入一个模板片段。                 |
+| 19     | `th:replace`     | 替换当前元素为一个模板片段。       |
+| 20     | `th:include`     | 包含一个模板片段的内容。           |
+| 21     | `th:block`       | 用于逻辑分组，不产生任何HTML输出。 |
+
+
+总结：先控制，再遍历，后操作，末内容。
+
+1. **先控制**：`th:if` 和 `th:unless` 用于条件控制，决定是否渲染元素。
+2. **再遍历**：`th:each` 用于遍历列表，生成多个元素。
+3. **后操作**：`th:with`、`th:switch`、`th:case`、`th:remove`、`th:attr` 等用于局部变量定义、条件分支、属性操作等。
+4. **末内容**：`th:text`、`th:utext`、`th:html` 等用于设置元素的内容。
+
+****
+#### *{...} 表达式
+
+`*{...}` 主要用于在上下文中访问对象的属性，这种表达式通常在表单处理和对象绑定场景中使用。
+
+1. 表单绑定
+
+```html
+<form th:object="${user}" method="post" action="/submit">
+    <label for="name">Name:</label>
+    <input type="text" id="name" name="name" th:field="*{name}" /> 
+    <label for="age">Age:</label>
+    <input type="number" id="age" name="age" th:field="*{age}" />
+    <button type="submit">Submit</button>
+</form>
+```
+
++ `th:object="${user}"` 将 `user` 对象设置为当前上下文对象。
++ `th:field="*{name}"` 和 `th:field="*{age}"` 分别绑定到 `user` 对象的 `name` 和 `age` 属性。
++ 也就是把 `<tr th:each="user,state : ${userList}">` 中 each 的 user 放到外面用 `th:object="${user}"` 接收，下面的属性就不需要再用 `user.` 语法格式了
+
+2. 对象属性访问
+
+```html
+<div th:object="${user}">
+    <p>Name: <span th:text="*{name}">Default Name</span></p>
+    <p>Age: <span th:text="*{age}">Default Age</span></p>
+</div>
+```
+
++ `th:object="${user}"` 将 `user` 对象设置为当前上下文对象。
++ `*{name}` 和 `*{age}` 分别访问 `user` 对象的 `name` 和 `age` 属性。
+
+**与 **`**${...}**`** 的区别**
+
++ `${...}`：标准表达式，用于访问模型中的变量和执行简单的表达式。
++ `*{...}`：属性选择表达式，用于在上下文中访问对象的属性，通常与 `th:object` 一起使用
+
+****
+#### 代码片段共享
+
+片段是 Thymeleaf 中用于代码复用的基本机制，可以将共享的部分提取到单独的 HTML 文件中，然后在其他模板中引用这些片段。
+
+页面中公共的 header.html：
+
+```html
+<header th:fragment="h">
+    <nav>
+        <ul>
+            <li><a th:href="@{/a}">Home</a></li>
+            <li><a th:href="@{/b}">About</a></li>
+        </ul>
+    </nav>
+</header>
+```
+
+页面中公共的 footer.html：
+
+```html
+<footer th:fragment="f">
+  <p>&copy; 2025</p>
+</footer>
+```
+
+创建页面引入头与脚：
+
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>主页</title>
+</head>
+<body>
+<div th:replace="~{header :: h}"></div>
+<main>
+    <h1>欢迎来到主页</h1>
+    <p>这是主页的主要内容.</p>
+</main>
+<div th:replace="~{footer :: f}"></div>
+</body>
+</html>
+```
+
+配置视图控制器实现快速跳转：
+
+```java
+@Override
+public void addViewControllers(ViewControllerRegistry registry) {
+  registry.addViewController("/a").setViewName("a");
+  registry.addViewController("/b").setViewName("b");
+}
+```
+
+****
+#### Thymeleaf 页面修改如何立即生效
+
+第一步：引入 springboot 提供的 `dev tools`
+
+```xml
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-devtools</artifactId>
+  <scope>runtime</scope>
+  <optional>true</optional>
+</dependency>
+```
+
+第二步：禁用类路径监控与自动重启，如果不关闭会导致每一次修改 java 代码后立即重启应用。
+
+```properties
+spring.devtools.restart.enabled=false
+```
+
+****
+## 8. 异常处理
 
 
 

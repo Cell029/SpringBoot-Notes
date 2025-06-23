@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8">
+  <title>用户列表页面</title>
+</head>
+<body>
+
+<h2>用户列表</h2>
+<table border="1">
+  <tr>
+    <th>序号</th>
+    <th>姓名</th>
+    <th>年龄</th>
+    <th>性别</th>
+    <th>描述</th>
+    <th>位置</th>
+    <th>其他信息</th>
+  </tr>
+
+  <tr th:each="user,state : ${users}">
+    <td th:text="${state.count}">1</td>
+    <td th:text="${user.name}">张三</td>
+    <td th:text="${user.age}">20</td>
+    <td th:text="${user.gender}"></td>
+    <td th:if="${#strings.isEmpty(user.desc)}" th:text="'这个人比较懒没有留下任何介绍信息'"></td>
+    <td th:if="${not #strings.isEmpty(user.desc)}" th:text="${user.desc}"></td>
+    <!--<td th:text="${user.desc}"></td>-->
+    <!--<td th:text="${user.location}"></td>-->
+    <td th:switch="${user.location}">
+      <span th:case="BEIJING">北京</span>
+      <span th:case="SHANGHAI">上海</span>
+      <span th:case="GUANGZHOU">广州</span>
+      <span th:case="SHENZHENG">深圳</span>
+      <span th:case="*">未知</span>
+    </td>
+    <td>
+      thymeleaf的内联表达式：<br>
+      下标：[[${state.index}]]<br>
+      序号：[[${state.count}]]<br>
+      当前对象：[[${state.current}]]<br>
+      元素总数：[[${state.size}]]<br>
+      是否为偶数行：[[${state.even}]]<br>
+      是否为奇数行：[[${state.odd}]]<br>
+      是否第一个元素：[[${state.first}]]<br>
+      是否最后一个元素：[[${state.last}]]<br>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>
