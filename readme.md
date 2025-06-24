@@ -2891,13 +2891,358 @@ server.tomcat.basedir=.
 ```
 
 ****
+# 六. SpringBoot 实用技术整合
 
+## 1. 控制台的 logo 设置
 
+- 配置文件方式：
 
+通过修改配置文件关闭 logo：spring.main.banner-mode=off
 
+- 打代码方式：
 
+第一种：
 
+```java
+@SpringBootApplication
+public class Springboot322WebServerApplication {
+    public static void main(String[] args) {
+        SpringApplication springApplication = new SpringApplication(Springboot322WebServerApplication.class);
+        springApplication.setBannerMode(Banner.Mode.OFF);
+        springApplication.run(args);
+    }
+}
+```
 
+第二种：流式编程
+
+```java
+new SpringApplicationBuilder()
+                .sources(Springboot322WebServerApplication.class)
+                .bannerMode(Banner.Mode.OFF)
+                .run(args);
+```
+
+- 修改 logo 图标
+
+在`src/main/resources`目录下存放一个`banner.txt`文件，文件名固定。
+
+利用一些网站生成图标：
+
+[https://www.bootschool.net/ascii](https://www.bootschool.net/ascii) （支持中文、英文）
+
+[http://patorjk.com/software/taag/](http://patorjk.com/software/taag/) （只支持英文）
+
+[https://www.degraeve.com/img2txt.php](https://www.degraeve.com/img2txt.php) （只支持图片）
+
+获取图标粘贴到 `banner.txt` 文件中运行程序即可。
+
+****
+## 2. PageHelper 整合
+
+官网地址：[https://pagehelper.github.io/](https://pagehelper.github.io/)
+
+相关依赖：
+
+```xml
+<dependency>
+    <groupId>com.github.pagehelper</groupId>
+    <artifactId>pagehelper-spring-boot-starter</artifactId>
+    <version>2.1.0</version>
+</dependency>
+```
+
+使用：
+
+```java
+@GetMapping("/list/{pageNo}")
+public PageInfo<Vip> list(@PathVariable("pageNo") Integer pageNo) {
+   // 1.设置当前页码和每页显示的记录条数
+   PageHelper.startPage(pageNo, Constant.PAGE_SIZE);
+   // 2.获取数据（PageHelper会自动给SQL语句添加limit）
+   List<Vip> vips = vipService.findAll();
+   // 3.将分页数据封装到PageInfo
+   PageInfo<Vip> vipPageInfo = new PageInfo<>(vips);
+   return vipPageInfo;
+}
+```
+
+****
+## 3. web 层响应结果的封装
+
+对于前后端分离的系统来说，为了降低沟通成本，有必要给前端系统开发人员返回统一格式的JSON数据，多数开发团队一般都会封装一个 [R](./Demo3-sprinboot_merge/src/main/java/com/cell/notes/web/result/R.java) 对象来解决统一响应格式的问题。
+
+****
+## 4. 事务管理
+
+Service 层是典型的业务逻辑层，事务应该围绕一个完整业务操作，而 Service 调用多个 Mapper、多个 DAO 方法，事务可以统一控制Spring 的事务 AOP 也是基于 Service 的代理对象生成的，
+所以 @Transactional 放这里才能生效
+
+测试：[转账](./Demo3-sprinboot_merge/src/main/java/com/cell/notes/web/controller/AccountController.java)
+
+****
+## 5. SpringBoot 打 war 包
+
+第一步：将打包方式设置为 war
+
+```xml
+<packaging>war</packaging>
+```
+
+第二步：排除内嵌 tomcat
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <!--内嵌的tomcat服务器排除掉-->
+    <exclusions>
+        <exclusion>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+```
+
+第三步：添加 servlet api 依赖（引入tomcat，但scope设置为provided，这样这个tomcat服务器就不会打入war包了）
+
+```xml
+<!--额外添加一个tomcat服务器，实际上是为了添加servlet api。scope设置为provided表示这个不会被打入war包当中。-->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-tomcat</artifactId>
+    <scope>provided</scope>
+</dependency>
+```
+
+第四步：修改主类
+
+```java
+@MapperScan(basePackages = "...")
+@SpringBootApplication
+public class MyApplication extends SpringBootServletInitializer{
+
+    @Override
+    protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+        return application.sources(MyApplication.class);
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+
+}
+```
+
+第五步：使用 Maven 打包
+
+在项目根目录执行：
+
+```java
+mvn clean package
+```
+
+或者通过 Maven 的快捷键，先 clean 再 package
+
+第六步：部署 war 包到外部 Tomcat
+
+启动 Tomcat 后访问页面：`http://localhost:8080/项目名`
+
+****
+## 6. Spring Boot 的日志处理
+
+### 1. 概述
+
+日志记录是一种关键的技术实践，用于捕捉软件运行时的信息、警告、错误以及其他重要数据。通过分析日志文件，开发人员、测试工程师和运维团队可以深入了解应用程序的行为，快速定位并解决出现的问题，同时对系统性能进行监控与优化。
+虽然在开发初期或简单的应用场景下，使用 System.out.println("记录日志...") 这样的方式来输出信息非常直接且易于实现，但在生产环境中的大型或复杂应用中，这种方式存在诸多不足：
+
+1. 性能问题：频繁地调用 System.out.println() 会占用额外的CPU资源，尤其是在高并发场景下，可能会影响应用程序的性能。 
+2. 日志管理不便：控制台输出的日志不易于长期保存和检索，也不便于与其他工具集成以进行更高级的日志分析。 
+3. 缺乏灵活性：通过 System.out.println() 输出的信息通常难以调整其格式、级别（如DEBUG, INFO, WARN, ERROR）或输出目标（例如文件、数据库、远程服务器等）。 
+4. 安全性和隐私：在某些情况下，直接打印敏感信息可能会泄露用户的个人数据或公司的商业秘密。
+
+因此，在实际的线上项目中，推荐采用专业的日志框架，它们提供了更为强大和灵活的日志处理能力：
+
+- 支持多种日志级别，允许开发者根据需要过滤日志信息。 
+- 可配置的日志输出格式，使日志更加规范易读。 
+- 支持将日志写入不同的目的地，如文件、数据库、网络服务等。 
+- 提供异步日志功能，减少日志记录对应用性能的影响。 
+- 能够与各种监控系统集成，支持实时告警和问题追踪。
+
+****
+### 2. Java 中的日志框架
+
+#### 2.1 抽象的日志框架
+
+编译阶段可以使用这些抽象的日志框架，并能够正常编译通过，但运行阶段必须提供具体的日志框架，这样做的目的是让具体的日志框架可灵活切换。
+
+- SLF4J (Simple Logging Facade for Java)
+   - 简介：SLF4J不是一个具体的日志实现，而是一个简单的抽象层，允许开发者在应用程序中使用统一的日志API，而实际的日志实现可以在部署时决定。
+   - 特点：提供了统一的日志记录接口，使得日志框架的选择更加灵活，易于切换不同的日志实现，减少了应用程序对特定日志框架的依赖。 
+   - 运行时可绑定的具体日志框架：Log4j、Log4j2、Logback、JUL。
+- Commons Logging (Jakarta Commons Logging)
+  - 简介：Commons Logging是Apache Jakarta项目的一部分。也是一种日志层面的抽象。
+  - 特点：允许在运行时动态选择日志实现，但因类加载机制的问题，有时会导致难以预料的行为，因此不如SLF4J受欢迎。
+  - 运行时可绑定的具体日志框架：Log4j、Log4j2、Logback、JUL。
+
+****
+#### 2.2 具体的日志框架
+
+- Log4j（太老，没人用了）
+   - 简介：Log4j是Apache软件基金会的一个开源项目，它提供了强大的日志记录功能，支持多种日志级别（如DEBUG, INFO, WARN, ERROR, FATAL）、灵活的日志输出格式和目的地配置。 
+   - 特点：易于配置和使用，支持日志滚动策略，适用于中小规模的应用。
+- Log4j 2
+   - 简介：Log4j 2是Log4j的下一代版本，旨在解决原版的一些性能瓶颈和设计缺陷。
+   - 特点：性能更优，支持插件化配置，增强了安全性，支持异步日志记录，减少了线程间的竞争，提高了日志记录的速度。
+- Logback
+   - 简介：Logback是Log4j的创始人Ceki Gülcü开发的另一个日志框架，设计之初就考虑到了性能和可靠性。 
+   - 特点：与SLF4J无缝集成，提供了比Log4j更好的性能表现，支持自动重载配置文件，具有更简洁的API和更少的bug。
+- JUL (Java Util Logging)
+   - 简介：JUL是Java SE平台自带的日志框架，从Java 1.4版本开始提供。 
+   - 特点：不需要额外的库文件，配置相对简单，适合小型应用。然而，相对于其他流行的日志框架，JUL的功能较为有限，配置不够灵活。
+
+这些日志框架各有优势，选择哪一种取决于项目的具体需求、团队的偏好以及现有的技术栈。例如：对于需要高性能和灵活配置的应用，Logback或Log4j 2可能是更好的选择；而对于希望减少对外部库依赖的小型项目，JUL可能更为合适。
+而SpringBoot框架默认使用的日志框架是：Logback。
+
+****
+### 3. 日志级别
+
+在Java的日志框架中，日志级别（Log Level）是用来指定日志记录的严重程度的一个标准。不同的日志级别代表了不同的重要性和紧急程度，这有助于开发者根据实际需要来过滤和关注特定类型的日志信息。常见的日志级别从低到高通常包括以下几种：
+
+1. TRACE：这是最低级别的日志信息，用于记录最详细的信息，通常是在调试应用时使用。 
+2. DEBUG：用于记录程序运行时的详细信息，比如变量的值、进入或退出某个方法等，主要用于开发阶段的调试。 
+3. INFO：记录应用程序的一般信息，如系统启动、服务初始化完成等，表示程序运行正常。 
+4. WARN：警告信息，表示可能存在问题或者异常的情况，但是还不至于导致应用停止工作。 
+5. ERROR：错误信息，表示发生了一个错误事件，该错误可能会导致某些功能无法正常工作。
+
+通过设置不同的日志级别，可以在生产环境中控制输出的日志量，从而减少对性能的影响。例如：
+
+- 在生产环境中，一般会将日志级别设置为INFO或更高级别，以避免输出过多的调试信息；
+- 而在开发或测试环境中，则可以将日志级别降低至DEBUG甚至TRACE，以便于进行详细的错误追踪和调试。
+
+级别越低，打印的日志信息越多，SpringBoot默认的日志级别是INFO，生产环境下要严格控制，因为日志级别越低，打印的信息越多，磁盘空间受不了。而SpringBoot默认将日志打印到控制台（通过配置可以改变打印到日志文件）
+
+****
+### 4. 更改日志级别
+
+测试日志级别：使用 Lombok 的 @Slf4j 注解自动维护一个 log 对象，SpringBoot 默认的日志隔离级别是INFO，因此 INFO，WARN，ERROR 三个级别的日志都会打印
+
+```java
+@Slf4j // 这是 lombok 的注解，用来维护一个 log 日志对象
+@MapperScan("com.cell.notes.web.mapper")
+@SpringBootApplication
+public class MySpringBootApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MySpringBootApplication.class, args);
+        log.trace("trace级别日志");
+        log.debug("debug级别日志");
+        log.info("info级别日志");
+        log.warn("warn级别日志");
+        log.error("error级别日志");
+    }
+}
+```
+
+可以通过配置文件开启剩下的日志级别：logging.level.root=DEBUG，换成 TRACE 则是最低级别，换成 ERROR 则只会打印 ERROR 相关内容
+
+****
+### 5. 丰富启动日志
+
+- debug=true：启用Spring Boot的调试模式，增加启动日志的详细程度并显示自动配置报告。
+- trace=true：启用Spring Boot的启动跟踪，生成包含启动信息的详细跟踪文件，内容是包含debug=true输出的内容的。
+
+这两个配置项主要影响Spring Boot框架本身的启动日志和跟踪信息，不影响在应用程序中编写的日志记录，并且在SpringBoot框架启动完成之后，不再有任何作用。
+而上面设置的日志等级是一直起作用的。
+
+****
+### 6. 日志的粗粒细度
+
+```properties
+# 设置根日志级别为 INFO（整个项目都使用INFO日志级别，这是粗粒度的配置。）
+logging.level.root=INFO
+
+# 为特定的包设置日志级别为 DEBUG
+logging.level.com.cell=DEBUG
+
+# 为特定的类设置日志级别为 TRACE
+logging.level.com.cell....MyService=TRACE
+```
+
+默认的 INFO 级别是不会显示 SQL 的，但又不想让低级别的日志在全局生效，就可以在 mapper 包下让它生效，这样就可以在项目中打印 sql 语句:
+
+```properties
+logging.level.root=INFO
+logging.level.com.cell.notes.web.mapper=DEBUG
+```
+
+****
+### 7. 日志输出到文件
+
+```properties
+logging.file.path=./log/
+```
+
+以上配置表示将日志文件输出到当前工程根目录下的 log 目录当中，文件名默认叫做 spring.log，并且文件名不可设置。
+
+```properties
+logging.file.name=my.log
+```
+
+以上的配置表示在工程的根目录下直接生成 my.log 文件，也可以设置路径：logging.file.name=./log/custom.log
+
+注意：以上两个配置同时存在时，只有 `logging.file.name` 配置生效，本质上两个配置不可共存。
+
+****
+### 8. 滚动日志
+
+滚动日志是一种日志管理机制，用于防止日志文件无限增长，通过将日志文件分割成多个文件，每个文件只包含一定时间段或大小的日志记录。
+
+```properties
+# 日志文件达到多大时进行归档
+logging.logback.rollingpolicy.max-file-size=100MB
+
+# 所有的归档日志文件总共达到多大时进行删除，默认是0B表示不删除
+logging.logback.rollingpolicy.total-size-cap=50GB
+
+# 归档日志文件最多保留几天
+logging.logback.rollingpolicy.max-history=60
+
+# 启动项目时是否要清理归档日志文件
+logging.logback.rollingpolicy.clean-history-on-start=false
+
+# 归档日志文件名的格式
+logging.logback.rollingpolicy.file-name-pattern=${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz
+```
+
+以上配置只适用与 springboot 默认的日志 logback，只有它可以在配置文件中这样配置
+
+****
+### 9. 日志框架切换
+
+在实际开发中也可能会切换日志框架，这时候就需要先排除掉，再添加：
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+    <exclusions>
+        <!--排除掉默认的日志依赖-->
+        <exclusion>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+
+<!--使用Log4j2日志依赖-->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-log4j2</artifactId>
+</dependency>
+```
+
+****
 
 
 

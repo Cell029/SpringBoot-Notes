@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<h1>转账成功！</h1>
+
+<table border="1" cellpadding="8">
+    <thead>
+    <tr>
+        <th>账号</th>
+        <th>余额</th>
+    </tr>
+    </thead>
+    <tbody>
+    <!-- 遍历 accounts 集合，展示账户信息 -->
+    <tr th:each="account : ${accounts}">
+        <td th:text="${account.actno}">账号</td>
+        <td th:text="${account.balance}">余额</td>
+    </tr>
+    </tbody>
+</table>
+
+<br>
+<a th:href="@{/}">返回转账页面</a>
+</body>
+</html>
